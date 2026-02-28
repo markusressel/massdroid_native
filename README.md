@@ -7,10 +7,11 @@ MassDroid lets you control your Music Assistant players, browse your library, ma
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/home.png" width="180" />
-  <img src="screenshots/nowplaying.png" width="180" />
+  <img src="screenshots/home.png" width="180" />&nbsp;&nbsp;
+  <img src="screenshots/nowplaying.png" width="180" />&nbsp;&nbsp;
   <img src="screenshots/library.png" width="180" />
-  <img src="screenshots/artist_detail.png" width="180" />
+  <br/><br/>
+  <img src="screenshots/artist_detail.png" width="180" />&nbsp;&nbsp;
   <img src="screenshots/player_settings.png" width="180" />
 </p>
 
@@ -29,15 +30,10 @@ MassDroid lets you control your Music Assistant players, browse your library, ma
 
 ## Tech Stack
 
-- Kotlin + Jetpack Compose
-- Material 3 (Material You)
-- MVVM architecture with StateFlow
-- Hilt dependency injection
-- OkHttp WebSocket (Music Assistant API)
-- Coil for image loading
-- Media3 / MediaSession for system integration
-- kotlinx.serialization
-- Compose Navigation
+- Kotlin, Jetpack Compose, Material 3
+- MVVM, Hilt, Coroutines/Flow
+- OkHttp WebSocket, kotlinx.serialization
+- Media3 / MediaSession
 
 ## How It Works
 
