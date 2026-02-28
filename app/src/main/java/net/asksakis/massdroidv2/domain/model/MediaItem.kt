@@ -1,0 +1,65 @@
+package net.asksakis.massdroidv2.domain.model
+
+data class Track(
+    val itemId: String,
+    val provider: String,
+    val name: String,
+    val uri: String,
+    val duration: Double? = null,
+    val artistNames: String = "",
+    val albumName: String = "",
+    val imageUrl: String? = null,
+    val favorite: Boolean = false,
+    val position: Int? = null,
+    val artistItemId: String? = null,
+    val artistProvider: String? = null,
+    val albumItemId: String? = null,
+    val albumProvider: String? = null
+)
+
+data class Album(
+    val itemId: String,
+    val provider: String,
+    val name: String,
+    val uri: String,
+    val artistNames: String = "",
+    val imageUrl: String? = null,
+    val favorite: Boolean = false,
+    val version: String? = null,
+    val year: Int? = null,
+    val description: String? = null,
+    val genres: List<String> = emptyList(),
+    val label: String? = null,
+    val artists: List<Artist> = emptyList()
+)
+
+data class Artist(
+    val itemId: String,
+    val provider: String,
+    val name: String,
+    val uri: String,
+    val imageUrl: String? = null,
+    val favorite: Boolean = false,
+    val description: String? = null,
+    val genres: List<String> = emptyList()
+)
+
+data class Playlist(
+    val itemId: String,
+    val provider: String,
+    val name: String,
+    val uri: String,
+    val imageUrl: String? = null,
+    val favorite: Boolean = false
+)
+
+enum class MediaType(val apiValue: String) {
+    TRACK("track"),
+    ALBUM("album"),
+    ARTIST("artist"),
+    PLAYLIST("playlist");
+
+    companion object {
+        fun fromApi(value: String): MediaType? = entries.find { it.apiValue == value }
+    }
+}

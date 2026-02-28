@@ -1,0 +1,144 @@
+package net.asksakis.massdroidv2.data.websocket
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+
+@Serializable
+data class CommandMessage(
+    val command: String,
+    @SerialName("message_id") val messageId: String,
+    val args: JsonObject? = null
+)
+
+@Serializable
+data class ServerInfo(
+    @SerialName("server_id") val serverId: String,
+    @SerialName("server_version") val serverVersion: String,
+    @SerialName("schema_version") val schemaVersion: Int,
+    @SerialName("base_url") val baseUrl: String
+)
+
+@Serializable
+data class ServerEvent(
+    val event: String,
+    @SerialName("object_id") val objectId: String? = null,
+    val data: JsonElement? = null
+)
+
+@Serializable
+data class ServerPlayer(
+    @SerialName("player_id") val playerId: String,
+    val provider: String = "",
+    val type: String = "player",
+    val available: Boolean = true,
+    val enabled: Boolean = true,
+    @SerialName("display_name") val displayName: String = "",
+    val name: String = "",
+    @SerialName("playback_state") val state: String = "idle",
+    @SerialName("volume_level") val volumeLevel: Int = 0,
+    @SerialName("volume_muted") val volumeMuted: Boolean = false,
+    @SerialName("active_source") val activeSource: String? = null,
+    @SerialName("active_group") val activeGroup: String? = null,
+    @SerialName("group_childs") val groupChilds: List<String> = emptyList(),
+    @SerialName("current_media") val currentMedia: CurrentMedia? = null,
+    val icon: String? = null
+)
+
+@Serializable
+data class CurrentMedia(
+    @SerialName("queue_id") val queueId: String? = null,
+    val uri: String? = null,
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null,
+    @SerialName("image_url") val imageUrl: String? = null,
+    val image: MediaItemImage? = null,
+    val duration: Double? = null,
+    @SerialName("elapsed_time") val elapsedTime: Double? = null
+)
+
+@Serializable
+data class ServerQueue(
+    @SerialName("queue_id") val queueId: String,
+    val available: Boolean = true,
+    @SerialName("shuffle_enabled") val shuffleEnabled: Boolean = false,
+    @SerialName("repeat_mode") val repeatMode: String = "off",
+    @SerialName("elapsed_time") val elapsedTime: Double = 0.0,
+    @SerialName("current_item") val currentItem: ServerQueueItem? = null
+)
+
+@Serializable
+data class ServerQueueItem(
+    @SerialName("queue_item_id") val queueItemId: String,
+    val name: String = "",
+    val duration: Double = 0.0,
+    @SerialName("media_item") val mediaItem: ServerMediaItem? = null,
+    val image: MediaItemImage? = null
+)
+
+@Serializable
+data class ServerMediaItem(
+    @SerialName("item_id") val itemId: String,
+    val provider: String = "",
+    val name: String = "",
+    @SerialName("media_type") val mediaType: String = "",
+    val uri: String = "",
+    val image: MediaItemImage? = null,
+    val favorite: Boolean = false,
+    val duration: Double? = null,
+    val artists: List<ServerMediaItem>? = null,
+    val album: ServerMediaItem? = null,
+    val metadata: MediaItemMetadata? = null,
+    val sort_name: String? = null,
+    val version: String? = null,
+    val position: Int? = null,
+    val year: Int? = null
+) {
+    /** Get the best image: direct image field, or first thumb from metadata.images */
+    fun resolveImageUrl(wsClient: MaWebSocketClient): String? {
+        // 1. Direct image field
+        image?.path?.let { return wsClient.getImageUrl(it) }
+        // 2. From metadata.images - prefer thumb type, use remotely_accessible URLs directly
+        val images = metadata?.images ?: return null
+        val thumb = images.firstOrNull { it.type == "thumb" } ?: images.firstOrNull() ?: return null
+        return if (thumb.remotelyAccessible) thumb.path
+        else wsClient.getImageUrl(thumb.path)
+    }
+}
+
+@Serializable
+data class MediaItemMetadata(
+    val images: List<MediaItemImage>? = null,
+    val description: String? = null,
+    val genres: List<String>? = null,
+    val label: String? = null,
+    val links: List<MediaItemLink>? = null
+)
+
+@Serializable
+data class MediaItemLink(
+    val type: String = "",
+    val url: String = ""
+)
+
+@Serializable
+data class MediaItemImage(
+    val type: String = "",
+    val path: String = "",
+    @SerialName("provider") val imageProvider: String = "builtin",
+    @SerialName("remotely_accessible") val remotelyAccessible: Boolean = false
+)
+
+object EventType {
+    const val PLAYER_UPDATED = "player_updated"
+    const val PLAYER_ADDED = "player_added"
+    const val PLAYER_REMOVED = "player_removed"
+    const val QUEUE_UPDATED = "queue_updated"
+    const val QUEUE_TIME_UPDATED = "queue_time_updated"
+    const val QUEUE_ITEMS_UPDATED = "queue_items_updated"
+    const val MEDIA_ITEM_ADDED = "media_item_added"
+    const val MEDIA_ITEM_UPDATED = "media_item_updated"
+    const val MEDIA_ITEM_DELETED = "media_item_deleted"
+}

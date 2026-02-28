@@ -1,0 +1,39 @@
+package net.asksakis.massdroidv2.domain.repository
+
+import net.asksakis.massdroidv2.domain.model.*
+
+interface MusicRepository {
+    suspend fun getArtists(search: String? = null, limit: Int = 50, offset: Int = 0, orderBy: String? = null, favoriteOnly: Boolean = false): List<Artist>
+    suspend fun getAlbums(search: String? = null, limit: Int = 50, offset: Int = 0, orderBy: String? = null, favoriteOnly: Boolean = false): List<Album>
+    suspend fun getTracks(search: String? = null, limit: Int = 50, offset: Int = 0, orderBy: String? = null, favoriteOnly: Boolean = false): List<Track>
+    suspend fun getPlaylists(search: String? = null, limit: Int = 50, offset: Int = 0, orderBy: String? = null, favoriteOnly: Boolean = false): List<Playlist>
+
+    suspend fun getArtist(itemId: String, provider: String, lazy: Boolean = true): Artist?
+    suspend fun getAlbum(itemId: String, provider: String, lazy: Boolean = true): Album?
+
+    suspend fun getArtistAlbums(itemId: String, provider: String): List<Album>
+    suspend fun getArtistTracks(itemId: String, provider: String): List<Track>
+    suspend fun getAlbumTracks(itemId: String, provider: String): List<Track>
+    suspend fun getPlaylistTracks(itemId: String, provider: String): List<Track>
+
+    suspend fun search(query: String, mediaTypes: List<MediaType>? = null, limit: Int = 25): SearchResult
+    suspend fun getQueueItems(queueId: String, limit: Int = 100, offset: Int = 0): List<QueueItem>
+
+    suspend fun playMedia(queueId: String, uri: String, option: String = "play", radioMode: Boolean = false)
+    suspend fun playMedia(queueId: String, uris: List<String>, option: String = "play")
+    suspend fun shuffleQueue(queueId: String, enabled: Boolean)
+    suspend fun repeatQueue(queueId: String, mode: RepeatMode)
+    suspend fun clearQueue(queueId: String)
+    suspend fun deleteQueueItem(queueId: String, itemIdOrIndex: String)
+    suspend fun moveQueueItem(queueId: String, queueItemId: String, posShift: Int)
+    suspend fun playQueueIndex(queueId: String, index: Int)
+
+    suspend fun setFavorite(uri: String, mediaType: MediaType, itemId: String, favorite: Boolean)
+}
+
+data class SearchResult(
+    val artists: List<Artist> = emptyList(),
+    val albums: List<Album> = emptyList(),
+    val tracks: List<Track> = emptyList(),
+    val playlists: List<Playlist> = emptyList()
+)

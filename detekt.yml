@@ -1,0 +1,25 @@
+build:
+  maxIssues: 0
+
+style:
+  WildcardImport:
+    active: false
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    maxLineLength: 140
+
+complexity:
+  LongMethod:
+    threshold: 80
+  ComplexMethod:
+    threshold: 20
+  TooManyFunctions:
+    active: false
+  LargeClass:
+    threshold: 600
+
+naming:
+  FunctionNaming:
+    # Compose functions are PascalCase
+    ignoreAnnotated: ['Composable']
