@@ -141,20 +141,20 @@ class MusicRepositoryImpl @Inject constructor(
         return items.map { it.toDomain() }
     }
 
-    override suspend fun playMedia(queueId: String, uri: String, option: String, radioMode: Boolean) {
+    override suspend fun playMedia(queueId: String, uri: String, option: String?, radioMode: Boolean) {
         wsClient.sendCommand("player_queues/play_media", buildJsonObject {
             put("queue_id", queueId)
             put("media", JsonArray(listOf(JsonPrimitive(uri))))
-            put("option", option)
+            option?.let { put("option", it) }
             if (radioMode) put("radio_mode", true)
         })
     }
 
-    override suspend fun playMedia(queueId: String, uris: List<String>, option: String) {
+    override suspend fun playMedia(queueId: String, uris: List<String>, option: String?) {
         wsClient.sendCommand("player_queues/play_media", buildJsonObject {
             put("queue_id", queueId)
             put("media", JsonArray(uris.map { JsonPrimitive(it) }))
-            put("option", option)
+            option?.let { put("option", it) }
         })
     }
 

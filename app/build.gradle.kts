@@ -100,6 +100,9 @@ dependencies {
     // Image loading
     implementation("io.coil-kt:coil-compose:2.7.0")
 
+    // Palette for dynamic colors
+    implementation("androidx.palette:palette-ktx:1.0.0")
+
     // Media3
     implementation("androidx.media3:media3-session:1.6.0")
     implementation("androidx.media3:media3-exoplayer:1.6.0")

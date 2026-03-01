@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import net.asksakis.massdroidv2.domain.model.PlaybackState
 import net.asksakis.massdroidv2.domain.model.QueueItem
 import net.asksakis.massdroidv2.domain.repository.MusicRepository
 import net.asksakis.massdroidv2.domain.repository.PlayerRepository
@@ -25,6 +26,14 @@ class QueueViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    val isPlaying: StateFlow<Boolean> = playerRepository.selectedPlayer
+        .map { it?.state == PlaybackState.PLAYING }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val currentQueueItemId: StateFlow<String?> = playerRepository.queueState
+        .map { it?.currentItem?.queueItemId }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     private val _error = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val error: SharedFlow<String> = _error.asSharedFlow()
 
@@ -33,18 +42,22 @@ class QueueViewModel @Inject constructor(
 
     init {
         loadQueue()
+        viewModelScope.launch {
+            playerRepository.queueItemsChanged.collect { loadQueue() }
+        }
     }
 
     private fun loadQueue() {
         val id = queueId ?: return
+        val isInitialLoad = _queueItems.value.isEmpty()
         viewModelScope.launch {
-            _isLoading.value = true
+            if (isInitialLoad) _isLoading.value = true
             try {
                 _queueItems.value = musicRepository.getQueueItems(id)
             } catch (e: Exception) {
                 Log.w(TAG, "loadQueue failed: ${e.message}")
             }
-            _isLoading.value = false
+            if (isInitialLoad) _isLoading.value = false
         }
     }
 
@@ -65,7 +78,7 @@ class QueueViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 musicRepository.deleteQueueItem(id, itemId)
-                loadQueue()
+                _queueItems.value = _queueItems.value.filter { it.queueItemId != itemId }
             } catch (e: Exception) {
                 Log.w(TAG, "removeItem failed: ${e.message}")
                 _error.tryEmit("Not connected to server")
@@ -78,10 +91,16 @@ class QueueViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 musicRepository.moveQueueItem(id, queueItemId, -1)
-                loadQueue()
+                // Local swap
+                val list = _queueItems.value.toMutableList()
+                val idx = list.indexOfFirst { it.queueItemId == queueItemId }
+                if (idx > 0) {
+                    list[idx] = list[idx - 1].also { list[idx - 1] = list[idx] }
+                    _queueItems.value = list
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "moveItemUp failed: ${e.message}", e)
-                _error.tryEmit("Not connected to server")
+                _error.tryEmit(parseQueueError(e))
             }
         }
     }
@@ -91,10 +110,16 @@ class QueueViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 musicRepository.moveQueueItem(id, queueItemId, 1)
-                loadQueue()
+                // Local swap
+                val list = _queueItems.value.toMutableList()
+                val idx = list.indexOfFirst { it.queueItemId == queueItemId }
+                if (idx >= 0 && idx < list.size - 1) {
+                    list[idx] = list[idx + 1].also { list[idx + 1] = list[idx] }
+                    _queueItems.value = list
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "moveItemDown failed: ${e.message}", e)
-                _error.tryEmit("Not connected to server")
+                _error.tryEmit(parseQueueError(e))
             }
         }
     }
@@ -107,7 +132,7 @@ class QueueViewModel @Inject constructor(
                 loadQueue()
             } catch (e: Exception) {
                 Log.w(TAG, "playNext failed: ${e.message}", e)
-                _error.tryEmit("Not connected to server")
+                _error.tryEmit(parseQueueError(e))
             }
         }
     }
@@ -123,5 +148,16 @@ class QueueViewModel @Inject constructor(
                 _error.tryEmit("Not connected to server")
             }
         }
+    }
+
+    private fun parseQueueError(e: Exception): String {
+        val msg = e.message ?: return "Operation failed"
+        if (msg.contains("already played/buffered", ignoreCase = true)) {
+            return "Cannot move buffered track"
+        }
+        if (msg.contains("Timed out", ignoreCase = true)) {
+            return "Server not responding"
+        }
+        return "Operation failed"
     }
 }

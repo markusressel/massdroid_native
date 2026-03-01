@@ -31,6 +31,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -64,6 +65,7 @@ class SendspinService : Service() {
     @Inject lateinit var sendspinManager: SendspinManager
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var playerRepository: PlayerRepository
+    @Inject lateinit var musicRepository: net.asksakis.massdroidv2.domain.repository.MusicRepository
     @Inject lateinit var wsClient: MaWebSocketClient
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -93,6 +95,9 @@ class SendspinService : Service() {
     private var isStreaming = false
     private var isSendspinReady = false
     private var wasPlayingBeforeDisconnect = false
+    private var resumePositionSeconds = 0.0
+    private var resumeTrackUri: String? = null
+    private var currentTrackUri: String? = null
     private var currentTitle = ""
     private var currentArtist = ""
     private var currentAlbum = ""
@@ -119,17 +124,21 @@ class SendspinService : Service() {
             ACTION_STOP -> stopSendspin()
             ACTION_PLAY_PAUSE -> {
                 val id = sendspinPlayerId ?: return START_STICKY
-                if (currentIsPlaying) {
-                    currentIsPlaying = false
-                    sendspinManager.pauseAudio()
-                } else {
+                val wantPlay = !currentIsPlaying
+                if (wantPlay) {
                     currentIsPlaying = true
                     if (!hasAudioFocus) requestAudioFocus()
-                    sendspinManager.resumeAudio()
+                    if (isSendspinReady) sendspinManager.resumeAudio()
+                } else {
+                    currentIsPlaying = false
+                    sendspinManager.pauseAudio()
                 }
                 optimisticUntil = System.currentTimeMillis() + 1000
                 updateMediaSession()
-                scope.launch { playerRepository.playPause(id) }
+                scope.launch {
+                    if (wantPlay && !isSendspinReady) ensureSendspinConnected()
+                    playerRepository.playPause(id)
+                }
             }
             ACTION_NEXT -> {
                 val id = sendspinPlayerId ?: return START_STICKY
@@ -262,8 +271,11 @@ class SendspinService : Service() {
                     optimisticUntil = System.currentTimeMillis() + 1000
                     updateMediaSession()
                     if (!hasAudioFocus) requestAudioFocus()
-                    sendspinManager.resumeAudio()
-                    scope.launch { playerRepository.play(id) }
+                    if (isSendspinReady) sendspinManager.resumeAudio()
+                    scope.launch {
+                        if (!isSendspinReady) ensureSendspinConnected()
+                        playerRepository.play(id)
+                    }
                 }
                 override fun onPause() {
                     Log.d(TAG, "MediaSession onPause")
@@ -303,6 +315,34 @@ class SendspinService : Service() {
         }
     }
 
+    private suspend fun ensureSendspinConnected(): Boolean {
+        val state = sendspinManager.connectionState.value
+        if (state == SendspinState.SYNCING || state == SendspinState.STREAMING) return true
+
+        // If mid-handshake, just wait for it to finish
+        if (state != SendspinState.DISCONNECTED && state != SendspinState.ERROR) {
+            Log.d(TAG, "Sendspin is $state, waiting for ready")
+            return kotlinx.coroutines.withTimeoutOrNull(10000) {
+                sendspinManager.connectionState
+                    .first { it == SendspinState.SYNCING || it == SendspinState.STREAMING }
+            } != null
+        }
+
+        // Disconnected or error: restart
+        val url = settingsRepository.serverUrl.first()
+        val token = wsClient.authToken ?: settingsRepository.authToken.first()
+        val clientId = sendspinPlayerId ?: return false
+        if (url.isBlank() || token.isBlank()) return false
+
+        Log.d(TAG, "Restarting sendspin for playback (was $state)")
+        sendspinManager.start(url, token, clientId, "MassDroid")
+
+        return kotlinx.coroutines.withTimeoutOrNull(10000) {
+            sendspinManager.connectionState
+                .first { it == SendspinState.SYNCING || it == SendspinState.STREAMING }
+        } != null
+    }
+
     private fun startSendspin() {
         // Request audio focus before starting
         requestAudioFocus()
@@ -328,8 +368,10 @@ class SendspinService : Service() {
                 Log.d(TAG, "Sendspin state: $state, isStreaming=$isStreaming, isSendspinReady=$isSendspinReady")
                 // Track if sendspin dropped while actively streaming (for auto-resume)
                 if (wasStreaming && !isStreaming) {
-                    wasPlayingBeforeDisconnect = true
-                    Log.d(TAG, "Sendspin dropped while streaming, marking for auto-resume")
+                    wasPlayingBeforeDisconnect = currentIsPlaying
+                    resumePositionSeconds = currentPositionMs / 1000.0
+                    resumeTrackUri = currentTrackUri
+                    Log.d(TAG, "Sendspin dropped while streaming, wasPlaying=$currentIsPlaying, pos=${resumePositionSeconds}s, uri=$resumeTrackUri")
                 }
                 val outsideOptimistic = System.currentTimeMillis() >= optimisticUntil
                 if (isStreaming && !wasStreaming) {
@@ -384,6 +426,7 @@ class SendspinService : Service() {
                     currentArtist = artist
                     currentAlbum = album
                     currentDurationMs = durationMs
+                    currentTrackUri = media?.uri
 
                     if (artChanged) {
                         currentArtUrl = artUrl
@@ -405,12 +448,16 @@ class SendspinService : Service() {
             playerRepository.playbackIntent.collect { willPlay ->
                 val selectedId = playerRepository.selectedPlayer.value?.playerId
                 if (selectedId != sendspinPlayerId) return@collect
-                if (!isSendspinReady) return@collect
                 if (willPlay) {
                     currentIsPlaying = true
                     if (!hasAudioFocus) requestAudioFocus()
-                    sendspinManager.resumeAudio()
+                    if (isSendspinReady) {
+                        sendspinManager.resumeAudio()
+                    } else {
+                        ensureSendspinConnected()
+                    }
                 } else {
+                    if (!isSendspinReady) return@collect
                     currentIsPlaying = false
                     sendspinManager.pauseAudio()
                 }
@@ -484,12 +531,65 @@ class SendspinService : Service() {
                             }
                             Log.d(TAG, "Reconnect: sendspin player state=${readyPlayer?.state ?: "timeout"}")
                             // Resume on the SENDSPIN player, not the selected UI player
-                            Log.d(TAG, "Resuming playback on sendspin player $clientId")
-                            try {
-                                playerRepository.play(clientId)
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Resume playback failed: ${e.message}")
+                            val seekTo = resumePositionSeconds
+                            val trackUri = resumeTrackUri
+                            Log.d(TAG, "Resuming on sendspin $clientId at ${seekTo}s, uri=$trackUri")
+                            var resumed = false
+                            for (attempt in 1..3) {
+                                // Abort if sendspin dropped again
+                                val ssState = sendspinManager.connectionState.value
+                                if (ssState != SendspinState.SYNCING && ssState != SendspinState.STREAMING) {
+                                    Log.d(TAG, "Sendspin no longer ready ($ssState), aborting resume")
+                                    break
+                                }
+                                try {
+                                    // Start playback
+                                    if (trackUri != null) {
+                                        val queueItems = musicRepository.getQueueItems(clientId)
+                                        val idx = queueItems.indexOfFirst { it.track?.uri == trackUri }
+                                        if (idx >= 0) {
+                                            Log.d(TAG, "Found track at queue index $idx, using play_index")
+                                            musicRepository.playQueueIndex(clientId, idx)
+                                        } else {
+                                            Log.d(TAG, "Track not in queue, using play_media")
+                                            musicRepository.playMedia(clientId, trackUri)
+                                        }
+                                    } else {
+                                        Log.d(TAG, "No track URI saved, using generic play")
+                                        playerRepository.play(clientId)
+                                    }
+                                    // Wait for stream to be active, verify track, then seek
+                                    if (seekTo > 1.0 && trackUri != null) {
+                                        val streaming = kotlinx.coroutines.withTimeoutOrNull(5000) {
+                                            sendspinManager.connectionState
+                                                .first { it == SendspinState.STREAMING }
+                                        }
+                                        if (streaming != null && currentTrackUri == trackUri) {
+                                            Log.d(TAG, "Stream active, correct track, seeking to ${seekTo}s")
+                                            playerRepository.seek(clientId, seekTo)
+                                        } else if (streaming != null) {
+                                            Log.w(TAG, "Track changed after resume (now=$currentTrackUri, expected=$trackUri), skipping seek")
+                                        } else {
+                                            Log.w(TAG, "Stream didn't start in 5s, skipping seek")
+                                        }
+                                    }
+                                    resumed = true
+                                    Log.d(TAG, "Resume succeeded (attempt $attempt)")
+                                    break
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Resume attempt $attempt failed: ${e.message}")
+                                    if (attempt < 3) {
+                                        delay(1500)
+                                        // Re-check after delay
+                                        val postDelaySs = sendspinManager.connectionState.value
+                                        if (postDelaySs != SendspinState.SYNCING && postDelaySs != SendspinState.STREAMING) {
+                                            Log.d(TAG, "Sendspin disconnected during retry delay ($postDelaySs), aborting")
+                                            break
+                                        }
+                                    }
+                                }
                             }
+                            if (!resumed) Log.e(TAG, "Resume failed after 3 attempts")
                         }
                     } else {
                         Log.d(TAG, "Reconnect: skipping auto-resume, was not playing before disconnect")

@@ -111,7 +111,7 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             wsClient.connectionState
                 .collect { state ->
-                    if (state is ConnectionState.Connected) {
+                    if (state is ConnectionState.Connected && _settingsLoaded.value) {
                         val isEmpty = when (_currentTab.value) {
                             0 -> _artists.value.isEmpty()
                             1 -> _albums.value.isEmpty()
@@ -328,8 +328,7 @@ class LibraryViewModel @Inject constructor(
         val queueId = playerRepository.selectedPlayer.value?.playerId ?: return
         viewModelScope.launch {
             try {
-                musicRepository.clearQueue(queueId)
-                musicRepository.playMedia(queueId, uri)
+                musicRepository.playMedia(queueId, uri, option = "replace")
             } catch (e: Exception) {
                 Log.w(TAG, "quickPlay failed: ${e.message}")
                 _error.tryEmit("Not connected to server")
@@ -376,7 +375,6 @@ class LibraryViewModel @Inject constructor(
         val queueId = playerRepository.selectedPlayer.value?.playerId ?: return
         viewModelScope.launch {
             try {
-                musicRepository.clearQueue(queueId)
                 musicRepository.playMedia(queueId, uri, radioMode = true)
             } catch (e: Exception) {
                 Log.w(TAG, "startRadio failed: ${e.message}")
@@ -516,7 +514,6 @@ class ArtistDetailViewModel @Inject constructor(
         val queueId = playerRepository.selectedPlayer.value?.playerId ?: return
         viewModelScope.launch {
             try {
-                musicRepository.clearQueue(queueId)
                 musicRepository.playMedia(queueId, uri, radioMode = true)
             } catch (e: Exception) {
                 Log.w(TAG, "startRadio failed: ${e.message}")
@@ -529,8 +526,7 @@ class ArtistDetailViewModel @Inject constructor(
         val queueId = playerRepository.selectedPlayer.value?.playerId ?: return
         viewModelScope.launch {
             try {
-                musicRepository.clearQueue(queueId)
-                musicRepository.playMedia(queueId, uri)
+                musicRepository.playMedia(queueId, uri, option = "replace")
             } catch (e: Exception) {
                 Log.w(TAG, "quickPlay failed: ${e.message}")
                 _error.tryEmit("Not connected to server")
@@ -672,7 +668,6 @@ class AlbumDetailViewModel @Inject constructor(
         val queueId = playerRepository.selectedPlayer.value?.playerId ?: return
         viewModelScope.launch {
             try {
-                musicRepository.clearQueue(queueId)
                 musicRepository.playMedia(queueId, uri, radioMode = true)
             } catch (e: Exception) {
                 Log.w(TAG, "startRadio failed: ${e.message}")
@@ -701,8 +696,7 @@ class AlbumDetailViewModel @Inject constructor(
         val queueId = playerRepository.selectedPlayer.value?.playerId ?: return
         viewModelScope.launch {
             try {
-                musicRepository.clearQueue(queueId)
-                musicRepository.playMedia(queueId, uris)
+                musicRepository.playMedia(queueId, uris, option = "replace")
             } catch (e: Exception) {
                 Log.w(TAG, "playAll failed: ${e.message}")
             }
@@ -843,7 +837,6 @@ class PlaylistDetailViewModel @Inject constructor(
         val queueId = playerRepository.selectedPlayer.value?.playerId ?: return
         viewModelScope.launch {
             try {
-                musicRepository.clearQueue(queueId)
                 musicRepository.playMedia(queueId, uri, radioMode = true)
             } catch (e: Exception) {
                 Log.w(TAG, "startRadio failed: ${e.message}")

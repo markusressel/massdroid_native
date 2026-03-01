@@ -2,6 +2,7 @@ package net.asksakis.massdroidv2.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.BorderStroke
@@ -33,7 +34,8 @@ fun MediaItemRow(
     favorite: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onMoreClick: (() -> Unit)? = null,
-    onPlayClick: (() -> Unit)? = null
+    onPlayClick: (() -> Unit)? = null,
+    showEqualizer: Boolean = false
 ) {
     ListItem(
         headlineContent = {
@@ -55,14 +57,35 @@ fun MediaItemRow(
             }
         },
         leadingContent = {
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = null,
+            Box(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(MaterialTheme.shapes.small),
-                contentScale = ContentScale.Crop
-            )
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                if (showEqualizer) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        EqualizerBars(
+                            modifier = Modifier.height(24.dp),
+                            barWidth = 3.dp,
+                            spacing = 2.dp,
+                            barCount = 4,
+                            bpm = 90
+                        )
+                    }
+                }
+            }
         },
         trailingContent = {
             if (favorite || onPlayClick != null || onMoreClick != null) {

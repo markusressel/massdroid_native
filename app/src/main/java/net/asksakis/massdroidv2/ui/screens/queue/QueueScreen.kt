@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import net.asksakis.massdroidv2.ui.components.EqualizerBars
 import net.asksakis.massdroidv2.ui.components.MediaItemRow
 
 private data class QueueActionItem(
@@ -37,7 +38,16 @@ fun QueueScreen(
 ) {
     val items by viewModel.queueItems.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
+    val currentQueueItemId by viewModel.currentQueueItemId.collectAsStateWithLifecycle()
     var actionSheetItem by remember { mutableStateOf<QueueActionItem?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(Unit) {
+        viewModel.error.collect { message ->
+            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -54,7 +64,8 @@ fun QueueScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         if (isLoading) {
             Box(
@@ -70,12 +81,14 @@ fun QueueScreen(
                     .padding(paddingValues)
             ) {
                 itemsIndexed(items, key = { _, item -> item.queueItemId }) { index, item ->
+                    val isCurrent = item.queueItemId == currentQueueItemId
                     MediaItemRow(
                         title = item.track?.name ?: item.name,
                         subtitle = item.track?.artistNames ?: "",
                         imageUrl = item.track?.imageUrl ?: item.imageUrl,
                         onClick = { viewModel.playIndex(index) },
-                        titleColor = if (index == 0) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                        titleColor = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                        showEqualizer = isCurrent && isPlaying,
                         onMoreClick = {
                             actionSheetItem = QueueActionItem(
                                 queueItemId = item.queueItemId,

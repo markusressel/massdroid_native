@@ -16,6 +16,9 @@ interface PlayerRepository {
     /** Emits immediately when a playback command is issued, before server round-trip. */
     val playbackIntent: SharedFlow<Boolean>
 
+    /** Emits the queue ID whenever QUEUE_ITEMS_UPDATED or QUEUE_UPDATED fires for the selected player. */
+    val queueItemsChanged: SharedFlow<String>
+
     suspend fun refreshPlayers()
     fun selectPlayer(playerId: String)
 

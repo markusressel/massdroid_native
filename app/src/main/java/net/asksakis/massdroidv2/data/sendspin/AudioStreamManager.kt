@@ -10,6 +10,7 @@ import android.util.Log
 import android.util.Base64
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.locks.ReentrantLock
 
 class AudioStreamManager {
 
@@ -24,82 +25,88 @@ class AudioStreamManager {
     @Volatile private var playbackActive = true
     private var frameCount = 0
     private var decodedFrameCount = 0
+    private val codecLock = ReentrantLock()
 
     fun configure(sampleRate: Int = 48000, channels: Int = 2, codecHeader: String? = null) {
-        release()
+        codecLock.lock()
+        try {
+            release_internal()
 
-        val channelConfig = if (channels == 2) {
-            AudioFormat.CHANNEL_OUT_STEREO
-        } else {
-            AudioFormat.CHANNEL_OUT_MONO
-        }
+            val channelConfig = if (channels == 2) {
+                AudioFormat.CHANNEL_OUT_STEREO
+            } else {
+                AudioFormat.CHANNEL_OUT_MONO
+            }
 
-        // Create AudioTrack
-        val bufferSize = AudioTrack.getMinBufferSize(
-            sampleRate,
-            channelConfig,
-            AudioFormat.ENCODING_PCM_16BIT
-        ) * 4
+            // Create AudioTrack
+            val bufferSize = AudioTrack.getMinBufferSize(
+                sampleRate,
+                channelConfig,
+                AudioFormat.ENCODING_PCM_16BIT
+            ) * 4
 
-        audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(channelConfig)
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .build()
-            )
-            .setBufferSizeInBytes(bufferSize)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
+            audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(channelConfig)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .build()
+                )
+                .setBufferSizeInBytes(bufferSize)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
 
-        // Create Opus MediaCodec decoder
-        val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, sampleRate, channels)
+            // Create Opus MediaCodec decoder
+            val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, sampleRate, channels)
 
-        // CSD-0: OpusHead header
-        val csd0 = if (codecHeader != null) {
-            try {
-                Base64.decode(codecHeader, Base64.DEFAULT)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to decode codec_header, using default OpusHead")
+            // CSD-0: OpusHead header
+            val csd0 = if (codecHeader != null) {
+                try {
+                    Base64.decode(codecHeader, Base64.DEFAULT)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to decode codec_header, using default OpusHead")
+                    createOpusHeader(channels, sampleRate)
+                }
+            } else {
                 createOpusHeader(channels, sampleRate)
             }
-        } else {
-            createOpusHeader(channels, sampleRate)
+            format.setByteBuffer("csd-0", ByteBuffer.wrap(csd0))
+            Log.d(TAG, "CSD-0 OpusHead: ${csd0.size} bytes, first=${csd0.take(8).map { it.toInt() and 0xFF }}")
+
+            // CSD-1: Pre-skip in nanoseconds (64-bit native byte order)
+            val preSkipNs = 3840L * 1_000_000_000L / sampleRate.toLong() // 80ms for 48kHz
+            val csd1 = ByteBuffer.allocate(8).order(ByteOrder.nativeOrder())
+            csd1.putLong(preSkipNs)
+            csd1.rewind()
+            format.setByteBuffer("csd-1", csd1)
+
+            // CSD-2: Seek pre-roll in nanoseconds (64-bit native byte order)
+            val seekPreRollNs = 80_000_000L // 80ms
+            val csd2 = ByteBuffer.allocate(8).order(ByteOrder.nativeOrder())
+            csd2.putLong(seekPreRollNs)
+            csd2.rewind()
+            format.setByteBuffer("csd-2", csd2)
+
+            codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS)
+            codec!!.configure(format, null, null, 0)
+            codec!!.start()
+
+            audioTrack!!.play()
+            configured = true
+            playbackActive = true
+            frameCount = 0
+            decodedFrameCount = 0
+            Log.d(TAG, "Audio pipeline configured: ${sampleRate}Hz ${channels}ch, buffer=$bufferSize, preSkip=${preSkipNs}ns")
+        } finally {
+            codecLock.unlock()
         }
-        format.setByteBuffer("csd-0", ByteBuffer.wrap(csd0))
-        Log.d(TAG, "CSD-0 OpusHead: ${csd0.size} bytes, first=${csd0.take(8).map { it.toInt() and 0xFF }}")
-
-        // CSD-1: Pre-skip in nanoseconds (64-bit native byte order)
-        val preSkipNs = 3840L * 1_000_000_000L / sampleRate.toLong() // 80ms for 48kHz
-        val csd1 = ByteBuffer.allocate(8).order(ByteOrder.nativeOrder())
-        csd1.putLong(preSkipNs)
-        csd1.rewind()
-        format.setByteBuffer("csd-1", csd1)
-
-        // CSD-2: Seek pre-roll in nanoseconds (64-bit native byte order)
-        val seekPreRollNs = 80_000_000L // 80ms
-        val csd2 = ByteBuffer.allocate(8).order(ByteOrder.nativeOrder())
-        csd2.putLong(seekPreRollNs)
-        csd2.rewind()
-        format.setByteBuffer("csd-2", csd2)
-
-        codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS)
-        codec!!.configure(format, null, null, 0)
-        codec!!.start()
-
-        audioTrack!!.play()
-        configured = true
-        playbackActive = true
-        frameCount = 0
-        decodedFrameCount = 0
-        Log.d(TAG, "Audio pipeline configured: ${sampleRate}Hz ${channels}ch, buffer=$bufferSize, preSkip=${preSkipNs}ns")
     }
 
     private fun createOpusHeader(channels: Int, sampleRate: Int): ByteArray {
@@ -139,7 +146,13 @@ class AudioStreamManager {
             Log.d(TAG, "Frame #$frameCount: payload=${opusPayload.size}, decoded=$decodedFrameCount")
         }
 
-        decodeAndPlay(opusPayload)
+        // tryLock: skip frame if codec is being flushed/reconfigured
+        if (!codecLock.tryLock()) return
+        try {
+            decodeAndPlay(opusPayload)
+        } finally {
+            codecLock.unlock()
+        }
     }
 
     private fun decodeAndPlay(opusData: ByteArray) {
@@ -164,7 +177,7 @@ class AudioStreamManager {
             // ALWAYS try to drain output, even if input wasn't queued
             drainOutput(mc, track)
         } catch (e: Exception) {
-            Log.e(TAG, "Decode error: ${e.message}", e)
+            Log.e(TAG, "Decode error: ${e.message}")
         }
     }
 
@@ -232,6 +245,7 @@ class AudioStreamManager {
     }
 
     fun clearBuffer() {
+        codecLock.lock()
         try {
             if (playbackActive) {
                 audioTrack?.pause()
@@ -246,10 +260,22 @@ class AudioStreamManager {
             Log.d(TAG, "Buffer cleared (playbackActive=$playbackActive)")
         } catch (e: Exception) {
             Log.e(TAG, "Clear buffer error: ${e.message}")
+        } finally {
+            codecLock.unlock()
         }
     }
 
     fun release() {
+        codecLock.lock()
+        try {
+            release_internal()
+        } finally {
+            codecLock.unlock()
+        }
+    }
+
+    // Must be called with codecLock held
+    private fun release_internal() {
         playbackActive = false
         configured = false
         try {

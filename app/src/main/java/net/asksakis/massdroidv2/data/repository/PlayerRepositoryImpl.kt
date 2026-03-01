@@ -37,6 +37,9 @@ class PlayerRepositoryImpl @Inject constructor(
     private val _playbackIntent = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
     override val playbackIntent: SharedFlow<Boolean> = _playbackIntent.asSharedFlow()
 
+    private val _queueItemsChanged = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    override val queueItemsChanged: SharedFlow<String> = _queueItemsChanged.asSharedFlow()
+
     private var selectedPlayerId: String? = null
 
     // Position tracking for smooth seek bar updates
@@ -124,6 +127,13 @@ class PlayerRepositoryImpl @Inject constructor(
                         _queueState.value = domainState
                         trackDuration = serverQueue.currentItem?.duration ?: 0.0
                         updatePosition(serverQueue.elapsedTime)
+                        _queueItemsChanged.tryEmit(serverQueue.queueId)
+                    }
+                }
+                EventType.QUEUE_ITEMS_UPDATED -> {
+                    val queueId = event.objectId ?: return@collect
+                    if (queueId == selectedPlayerId) {
+                        _queueItemsChanged.tryEmit(queueId)
                     }
                 }
                 EventType.QUEUE_TIME_UPDATED -> {

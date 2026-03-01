@@ -19,8 +19,8 @@ interface MusicRepository {
     suspend fun search(query: String, mediaTypes: List<MediaType>? = null, limit: Int = 25): SearchResult
     suspend fun getQueueItems(queueId: String, limit: Int = 100, offset: Int = 0): List<QueueItem>
 
-    suspend fun playMedia(queueId: String, uri: String, option: String = "play", radioMode: Boolean = false)
-    suspend fun playMedia(queueId: String, uris: List<String>, option: String = "play")
+    suspend fun playMedia(queueId: String, uri: String, option: String? = null, radioMode: Boolean = false)
+    suspend fun playMedia(queueId: String, uris: List<String>, option: String? = null)
     suspend fun shuffleQueue(queueId: String, enabled: Boolean)
     suspend fun repeatQueue(queueId: String, mode: RepeatMode)
     suspend fun clearQueue(queueId: String)
