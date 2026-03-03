@@ -41,8 +41,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
-import net.asksakis.massdroidv2.data.websocket.ConnectionState
-import net.asksakis.massdroidv2.domain.model.PlaybackState
 import net.asksakis.massdroidv2.ui.components.MiniPlayer
 import net.asksakis.massdroidv2.ui.navigation.MassDroidNavHost
 import net.asksakis.massdroidv2.ui.navigation.Routes
@@ -124,18 +122,6 @@ private fun MassDroidApp(
     val showNav = currentRoute in navItems.map { it.route }
     val showMiniPlayer = currentRoute != Routes.NOW_PLAYING
 
-    val connectionState by miniPlayerViewModel.connectionState.collectAsStateWithLifecycle()
-    val selectedPlayer by miniPlayerViewModel.selectedPlayer.collectAsStateWithLifecycle()
-    val queueState by miniPlayerViewModel.queueState.collectAsStateWithLifecycle()
-
-    val isConnected = connectionState is ConnectionState.Connected
-    val player = selectedPlayer
-    val currentTrack = queueState?.currentItem?.track
-    val title = currentTrack?.name ?: player?.currentMedia?.title ?: player?.displayName ?: ""
-    val artist = currentTrack?.artistNames ?: player?.currentMedia?.artist ?: ""
-    val imageUrl = currentTrack?.imageUrl ?: player?.currentMedia?.imageUrl
-    val hasMiniPlayer = isConnected && player != null && showMiniPlayer
-
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     if (isLandscape) {
@@ -143,11 +129,7 @@ private fun MassDroidApp(
             navController = navController,
             currentRoute = currentRoute,
             showNav = showNav,
-            hasMiniPlayer = hasMiniPlayer,
-            title = title,
-            artist = artist,
-            imageUrl = imageUrl,
-            isPlaying = player?.state == PlaybackState.PLAYING,
+            showMiniPlayer = showMiniPlayer,
             miniPlayerViewModel = miniPlayerViewModel
         )
     } else {
@@ -155,11 +137,7 @@ private fun MassDroidApp(
             navController = navController,
             currentRoute = currentRoute,
             showNav = showNav,
-            hasMiniPlayer = hasMiniPlayer,
-            title = title,
-            artist = artist,
-            imageUrl = imageUrl,
-            isPlaying = player?.state == PlaybackState.PLAYING,
+            showMiniPlayer = showMiniPlayer,
             miniPlayerViewModel = miniPlayerViewModel
         )
     }
@@ -170,32 +148,18 @@ private fun PortraitLayout(
     navController: NavHostController,
     currentRoute: String?,
     showNav: Boolean,
-    hasMiniPlayer: Boolean,
-    title: String,
-    artist: String,
-    imageUrl: String?,
-    isPlaying: Boolean,
+    showMiniPlayer: Boolean,
     miniPlayerViewModel: MiniPlayerViewModel
 ) {
     Scaffold(
         bottomBar = {
             Column {
-                if (hasMiniPlayer) {
-                    MiniPlayer(
-                        title = title,
-                        artist = artist,
-                        imageUrl = imageUrl,
-                        isPlaying = isPlaying,
-                        onPlayPause = { miniPlayerViewModel.playPause() },
-                        onNext = { miniPlayerViewModel.next() },
-                        onQueue = {
-                            navController.navigate(Routes.QUEUE) { launchSingleTop = true }
-                        },
-                        onClick = {
-                            navController.navigate(Routes.NOW_PLAYING) { launchSingleTop = true }
-                        }
-                    )
-                }
+                MiniPlayerContainer(
+                    showMiniPlayer = showMiniPlayer,
+                    miniPlayerViewModel = miniPlayerViewModel,
+                    onQueue = { navController.navigate(Routes.QUEUE) { launchSingleTop = true } },
+                    onClick = { navController.navigate(Routes.NOW_PLAYING) { launchSingleTop = true } }
+                )
                 if (showNav) {
                     BottomNavBar(navController, currentRoute)
                 }
@@ -214,31 +178,17 @@ private fun LandscapeLayout(
     navController: NavHostController,
     currentRoute: String?,
     showNav: Boolean,
-    hasMiniPlayer: Boolean,
-    title: String,
-    artist: String,
-    imageUrl: String?,
-    isPlaying: Boolean,
+    showMiniPlayer: Boolean,
     miniPlayerViewModel: MiniPlayerViewModel
 ) {
     Scaffold(
         bottomBar = {
-            if (hasMiniPlayer) {
-                MiniPlayer(
-                    title = title,
-                    artist = artist,
-                    imageUrl = imageUrl,
-                    isPlaying = isPlaying,
-                    onPlayPause = { miniPlayerViewModel.playPause() },
-                    onNext = { miniPlayerViewModel.next() },
-                    onQueue = {
-                        navController.navigate(Routes.QUEUE) { launchSingleTop = true }
-                    },
-                    onClick = {
-                        navController.navigate(Routes.NOW_PLAYING) { launchSingleTop = true }
-                    }
-                )
-            }
+            MiniPlayerContainer(
+                showMiniPlayer = showMiniPlayer,
+                miniPlayerViewModel = miniPlayerViewModel,
+                onQueue = { navController.navigate(Routes.QUEUE) { launchSingleTop = true } },
+                onClick = { navController.navigate(Routes.NOW_PLAYING) { launchSingleTop = true } }
+            )
         }
     ) { paddingValues ->
         Row(
@@ -255,6 +205,29 @@ private fun LandscapeLayout(
             )
         }
     }
+}
+
+@Composable
+private fun MiniPlayerContainer(
+    showMiniPlayer: Boolean,
+    miniPlayerViewModel: MiniPlayerViewModel,
+    onQueue: () -> Unit,
+    onClick: () -> Unit
+) {
+    val miniPlayerUiState by miniPlayerViewModel.miniPlayerUiState.collectAsStateWithLifecycle()
+    val hasMiniPlayer = showMiniPlayer && miniPlayerUiState.connected && miniPlayerUiState.hasPlayer
+    if (!hasMiniPlayer) return
+
+    MiniPlayer(
+        title = miniPlayerUiState.title,
+        artist = miniPlayerUiState.artist,
+        imageUrl = miniPlayerUiState.imageUrl,
+        isPlaying = miniPlayerUiState.isPlaying,
+        onPlayPause = { miniPlayerViewModel.playPause() },
+        onNext = { miniPlayerViewModel.next() },
+        onQueue = onQueue,
+        onClick = onClick
+    )
 }
 
 @Composable

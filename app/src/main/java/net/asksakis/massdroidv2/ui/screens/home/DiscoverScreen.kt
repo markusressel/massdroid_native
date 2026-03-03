@@ -3,12 +3,14 @@ package net.asksakis.massdroidv2.ui.screens.home
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -18,10 +20,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.Composable
@@ -43,7 +48,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import net.asksakis.massdroidv2.R
 import net.asksakis.massdroidv2.domain.model.Album
@@ -95,6 +104,7 @@ fun DiscoverScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val radioOverlayGenre by viewModel.radioOverlayGenre.collectAsStateWithLifecycle()
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val pullToRefreshState = rememberPullToRefreshState()
 
     Scaffold(
         topBar = {
@@ -129,72 +139,104 @@ fun DiscoverScreen(
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
                     onRefresh = { viewModel.refresh() },
+                    state = pullToRefreshState,
+                    indicator = {},
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 8.dp)
                     ) {
-                        for (section in sections) {
-                            when (section) {
-                                is DiscoverSection.ArtistSection -> {
-                                    SectionHeader(section.title)
-                                    ArtistRow(
-                                        artists = section.artists,
-                                        onArtistClick = onArtistClick,
-                                        modifier = Modifier.height(ArtistRowHeight)
-                                    )
-                                }
-                                is DiscoverSection.AlbumSection -> {
-                                    SectionHeader(section.title)
-                                    AlbumRow(
-                                        albums = section.albums,
-                                        onAlbumClick = onAlbumClick,
-                                        modifier = Modifier.height(AlbumRowHeight)
-                                    )
-                                }
-                                is DiscoverSection.PlaylistSection -> {
-                                    SectionHeader(section.title)
-                                    PlaylistRow(
-                                        playlists = section.playlists,
-                                        onPlaylistClick = onPlaylistClick,
-                                        modifier = Modifier.height(PlaylistRowHeight)
-                                    )
-                                }
-                                is DiscoverSection.TrackSection -> {
-                                    SectionHeader(section.title)
-                                    TrackRow(
-                                        tracks = section.tracks,
-                                        onTrackClick = { track -> viewModel.playTrack(track) },
-                                        modifier = Modifier.height(TrackRowHeight)
-                                    )
-                                }
-                                is DiscoverSection.GenreRadioSection -> {
-                                    SectionHeader(section.title)
-                                    GenreRow(
-                                        genres = section.genres,
-                                        onGenreClick = { genre ->
-                                            viewModel.startGenreRadio(genre.name)
-                                        },
-                                        modifier = Modifier.height(GenreRowHeight)
-                                    )
+                        itemsIndexed(
+                            items = sections,
+                            key = { index, section -> "${section::class.simpleName}:${sectionTitle(section)}:$index" },
+                            contentType = { _, section -> section::class.simpleName ?: "section" }
+                        ) { _, section ->
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                when (section) {
+                                    is DiscoverSection.ArtistSection -> {
+                                        SectionHeader(section.title)
+                                        ArtistRow(
+                                            artists = section.artists,
+                                            onArtistClick = onArtistClick,
+                                            modifier = Modifier.height(ArtistRowHeight)
+                                        )
+                                    }
+                                    is DiscoverSection.AlbumSection -> {
+                                        SectionHeader(section.title)
+                                        AlbumRow(
+                                            albums = section.albums,
+                                            onAlbumClick = onAlbumClick,
+                                            modifier = Modifier.height(AlbumRowHeight)
+                                        )
+                                    }
+                                    is DiscoverSection.PlaylistSection -> {
+                                        SectionHeader(section.title)
+                                        PlaylistRow(
+                                            playlists = section.playlists,
+                                            onPlaylistClick = onPlaylistClick,
+                                            modifier = Modifier.height(PlaylistRowHeight)
+                                        )
+                                    }
+                                    is DiscoverSection.TrackSection -> {
+                                        SectionHeader(section.title)
+                                        TrackRow(
+                                            tracks = section.tracks,
+                                            onTrackClick = { track -> viewModel.playTrack(track) },
+                                            modifier = Modifier.height(TrackRowHeight)
+                                        )
+                                    }
+                                    is DiscoverSection.GenreRadioSection -> {
+                                        SectionHeader(section.title)
+                                        GenreRow(
+                                            genres = section.genres,
+                                            onGenreClick = { genre ->
+                                                viewModel.startGenreRadio(genre.name)
+                                            },
+                                            modifier = Modifier.height(GenreRowHeight)
+                                        )
+                                    }
                                 }
                             }
                         }
+                    }
+                }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                AnimatedVisibility(
+                    visible = isRefreshing,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 250)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 250)),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.50f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            EqualizerBars(
+                                modifier = Modifier.height(56.dp),
+                                barWidth = 6.dp,
+                                spacing = 4.dp,
+                                barCount = 5,
+                                bpm = 120,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Refreshing...",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
             }
 
             // Radio start overlay
-            AnimatedVisibility(
-                visible = radioOverlayGenre != null,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
+            if (radioOverlayGenre != null) {
                 RadioStartOverlay(genre = radioOverlayGenre ?: "")
             }
         }
@@ -256,23 +298,46 @@ private fun SectionHeader(title: String) {
     )
 }
 
+private fun sectionTitle(section: DiscoverSection): String {
+    return when (section) {
+        is DiscoverSection.ArtistSection -> section.title
+        is DiscoverSection.AlbumSection -> section.title
+        is DiscoverSection.PlaylistSection -> section.title
+        is DiscoverSection.TrackSection -> section.title
+        is DiscoverSection.GenreRadioSection -> section.title
+    }
+}
+
+@Composable
+private fun rememberSizedImageModel(
+    url: String?,
+    widthPx: Int,
+    heightPx: Int = widthPx
+): Any? {
+    if (url == null) return null
+    val context = LocalContext.current
+    return remember(url, widthPx, heightPx, context) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .size(widthPx, heightPx)
+            .crossfade(false)
+            .build()
+    }
+}
+
 @Composable
 private fun ArtistRow(
     artists: List<Artist>,
     onArtistClick: (Artist) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+    LazyRow(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        for (artist in artists) {
-            ArtistCard(
-                artist = artist,
-                onClick = { onArtistClick(artist) }
-            )
+        items(artists, key = { it.uri }) { artist ->
+            ArtistCard(artist = artist, onClick = { onArtistClick(artist) })
         }
     }
 }
@@ -282,15 +347,21 @@ private fun ArtistCard(
     artist: Artist,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
             .width(90.dp)
-            .clickable(onClick = onClick),
+            .clearAndSetSemantics { contentDescription = artist.name }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         AsyncImage(
-            model = artist.imageUrl,
-            contentDescription = artist.name,
+            model = rememberSizedImageModel(artist.imageUrl, widthPx = 236),
+            contentDescription = null,
             modifier = Modifier
                 .size(90.dp)
                 .clip(CircleShape)
@@ -315,17 +386,13 @@ private fun AlbumRow(
     onAlbumClick: (Album) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+    LazyRow(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        for (album in albums) {
-            AlbumCard(
-                album = album,
-                onClick = { onAlbumClick(album) }
-            )
+        items(albums, key = { it.uri }) { album ->
+            AlbumCard(album = album, onClick = { onAlbumClick(album) })
         }
     }
 }
@@ -335,14 +402,26 @@ private fun AlbumCard(
     album: Album,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
             .width(110.dp)
-            .clickable(onClick = onClick)
+            .clearAndSetSemantics {
+                contentDescription = if (album.artistNames.isNotBlank()) {
+                    "${album.name}, ${album.artistNames}"
+                } else {
+                    album.name
+                }
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         AsyncImage(
-            model = album.imageUrl,
-            contentDescription = album.name,
+            model = rememberSizedImageModel(album.imageUrl, widthPx = 289),
+            contentDescription = null,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
@@ -373,17 +452,13 @@ private fun PlaylistRow(
     onPlaylistClick: (Playlist) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+    LazyRow(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        for (playlist in playlists) {
-            PlaylistCard(
-                playlist = playlist,
-                onClick = { onPlaylistClick(playlist) }
-            )
+        items(playlists, key = { it.uri }) { playlist ->
+            PlaylistCard(playlist = playlist, onClick = { onPlaylistClick(playlist) })
         }
     }
 }
@@ -393,14 +468,20 @@ private fun PlaylistCard(
     playlist: Playlist,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
             .width(110.dp)
-            .clickable(onClick = onClick)
+            .clearAndSetSemantics { contentDescription = playlist.name }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         AsyncImage(
-            model = playlist.imageUrl,
-            contentDescription = playlist.name,
+            model = rememberSizedImageModel(playlist.imageUrl, widthPx = 289),
+            contentDescription = null,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
@@ -424,17 +505,13 @@ private fun TrackRow(
     onTrackClick: (Track) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+    LazyRow(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        for (track in tracks) {
-            TrackCard(
-                track = track,
-                onClick = { onTrackClick(track) }
-            )
+        items(tracks, key = { it.uri }) { track ->
+            TrackCard(track = track, onClick = { onTrackClick(track) })
         }
     }
 }
@@ -444,15 +521,27 @@ private fun TrackCard(
     track: Track,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .width(200.dp)
-            .clickable(onClick = onClick),
+            .clearAndSetSemantics {
+                contentDescription = if (track.artistNames.isNotBlank()) {
+                    "${track.name}, ${track.artistNames}"
+                } else {
+                    track.name
+                }
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         AsyncImage(
-            model = track.imageUrl,
-            contentDescription = track.name,
+            model = rememberSizedImageModel(track.imageUrl, widthPx = 126),
+            contentDescription = null,
             modifier = Modifier
                 .size(48.dp)
                 .clip(MaterialTheme.shapes.small)
@@ -484,17 +573,13 @@ private fun GenreRow(
     onGenreClick: (GenreItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+    LazyRow(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        for (genre in genres) {
-            GenreChip(
-                genre = genre,
-                onClick = { onGenreClick(genre) }
-            )
+        items(genres, key = { it.name }) { genre ->
+            GenreChip(genre = genre, onClick = { onGenreClick(genre) })
         }
     }
 }
@@ -504,19 +589,29 @@ private fun GenreChip(
     genre: GenreItem,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     ElevatedCard(
-        onClick = onClick,
         shape = MaterialTheme.shapes.medium
     ) {
         Box(
             modifier = Modifier
                 .width(140.dp)
-                .aspectRatio(2f),
+                .aspectRatio(2f)
+                .clearAndSetSemantics { contentDescription = genre.name }
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick
+                ),
             contentAlignment = Alignment.Center
         ) {
             genre.imageUrl?.let { url ->
                 AsyncImage(
-                    model = url,
+                    model = rememberSizedImageModel(
+                        url = url,
+                        widthPx = 368,
+                        heightPx = 184
+                    ),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

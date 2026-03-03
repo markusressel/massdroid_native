@@ -4,12 +4,28 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import net.asksakis.massdroidv2.data.websocket.ConnectionState
 import net.asksakis.massdroidv2.data.websocket.MaWebSocketClient
+import net.asksakis.massdroidv2.domain.model.PlaybackState
 import net.asksakis.massdroidv2.domain.repository.PlayerRepository
 import javax.inject.Inject
 
 private const val TAG = "MiniPlayerVM"
+
+data class MiniPlayerUiState(
+    val connected: Boolean = false,
+    val hasPlayer: Boolean = false,
+    val title: String = "",
+    val artist: String = "",
+    val imageUrl: String? = null,
+    val isPlaying: Boolean = false
+)
 
 @HiltViewModel
 class MiniPlayerViewModel @Inject constructor(
@@ -17,12 +33,31 @@ class MiniPlayerViewModel @Inject constructor(
     private val wsClient: MaWebSocketClient
 ) : ViewModel() {
 
-    val selectedPlayer = playerRepository.selectedPlayer
-    val queueState = playerRepository.queueState
-    val connectionState = wsClient.connectionState
+    val miniPlayerUiState: StateFlow<MiniPlayerUiState> = combine(
+        wsClient.connectionState,
+        playerRepository.selectedPlayer,
+        playerRepository.queueState
+    ) { connectionState, selectedPlayer, queueState ->
+        val currentTrack = queueState?.currentItem?.track
+        MiniPlayerUiState(
+            connected = connectionState is ConnectionState.Connected,
+            hasPlayer = selectedPlayer != null,
+            title = currentTrack?.name ?: selectedPlayer?.currentMedia?.title
+            ?: selectedPlayer?.displayName.orEmpty(),
+            artist = currentTrack?.artistNames ?: selectedPlayer?.currentMedia?.artist.orEmpty(),
+            imageUrl = currentTrack?.imageUrl ?: selectedPlayer?.currentMedia?.imageUrl,
+            isPlaying = selectedPlayer?.state == PlaybackState.PLAYING
+        )
+    }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = MiniPlayerUiState()
+        )
 
     fun playPause() {
-        val player = selectedPlayer.value ?: return
+        val player = playerRepository.selectedPlayer.value ?: return
         viewModelScope.launch {
             try {
                 playerRepository.playPause(player.playerId)
@@ -33,7 +68,7 @@ class MiniPlayerViewModel @Inject constructor(
     }
 
     fun next() {
-        val player = selectedPlayer.value ?: return
+        val player = playerRepository.selectedPlayer.value ?: return
         viewModelScope.launch {
             try {
                 playerRepository.next(player.playerId)
