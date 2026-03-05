@@ -389,7 +389,7 @@ class PlayerRepositoryImpl @Inject constructor(
     override suspend fun previous(playerId: String) = playerCmd("previous", playerId)
 
     override suspend fun seek(playerId: String, position: Double) {
-        wsClient.sendCommand("players/cmd/seek", buildJsonObject {
+        sendPlayerCommandWithRetry("players/cmd/seek", buildJsonObject {
             put("player_id", playerId)
             put("position", position)
         })
@@ -501,10 +501,39 @@ class PlayerRepositoryImpl @Inject constructor(
     }
 
     private suspend fun playerCmd(cmd: String, playerId: String) {
-        val result = wsClient.sendCommand("players/cmd/$cmd", buildJsonObject {
+        sendPlayerCommandWithRetry("players/cmd/$cmd", buildJsonObject {
             put("player_id", playerId)
         })
-        Log.d(TAG, "playerCmd $cmd($playerId) -> $result")
+        Log.d(TAG, "playerCmd sent: $cmd($playerId)")
+    }
+
+    private suspend fun sendPlayerCommandWithRetry(command: String, args: JsonObject) {
+        var attempt = 0
+        var lastError: MaApiException? = null
+        while (attempt < 2) {
+            try {
+                wsClient.sendCommand(command, args, awaitResponse = false)
+                return
+            } catch (e: MaApiException) {
+                if (!isTransientWsCommandError(e)) throw e
+                lastError = e
+                attempt++
+                if (attempt >= 2) break
+                Log.d(TAG, "Transient '$command' failure, waiting for reconnect and retrying")
+                withTimeoutOrNull(2_000) {
+                    wsClient.connectionState.first { it is ConnectionState.Connected }
+                }
+                delay(250)
+            }
+        }
+        throw lastError ?: MaApiException("WebSocket command failed", -1)
+    }
+
+    private fun isTransientWsCommandError(e: MaApiException): Boolean {
+        val msg = e.message?.lowercase() ?: return false
+        return "websocket not connected" in msg ||
+                "connection lost" in msg ||
+                "connection closed" in msg
     }
 }
 

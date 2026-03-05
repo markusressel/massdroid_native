@@ -56,6 +56,8 @@ class SendspinService : Service() {
 
     companion object {
         private const val TAG = "SendspinService"
+        private const val PAUSE_DEBOUNCE_MS = 400L
+        private const val SESSION_POSITION_STEP_MS = 1000L
         const val ACTION_START = "net.asksakis.massdroidv2.SENDSPIN_START"
         const val ACTION_STOP = "net.asksakis.massdroidv2.SENDSPIN_STOP"
         private const val ACTION_PLAY_PAUSE = "net.asksakis.massdroidv2.SENDSPIN_PLAY_PAUSE"
@@ -117,6 +119,14 @@ class SendspinService : Service() {
     private var optimisticUntil = 0L
     private var sendspinPlayerId: String? = null
     private val collectorJobs = mutableListOf<Job>()
+    private var lastPlayingAtMs = 0L
+    private var lastSessionPbState = Int.MIN_VALUE
+    private var lastSessionPositionBucket = Long.MIN_VALUE
+    private var lastSessionTitle = ""
+    private var lastSessionArtist = ""
+    private var lastSessionAlbum = ""
+    private var lastSessionDurationMs = -1L
+    private var lastSessionArtUrl: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -138,6 +148,7 @@ class SendspinService : Service() {
                 val wantPlay = !currentIsPlaying
                 if (wantPlay) {
                     currentIsPlaying = true
+                    lastPlayingAtMs = System.currentTimeMillis()
                     if (!hasAudioFocus) requestAudioFocus()
                     if (isSendspinReady) sendspinManager.resumeAudio()
                 } else {
@@ -299,6 +310,7 @@ class SendspinService : Service() {
                     Log.d(TAG, "MediaSession onPlay")
                     val id = sendspinPlayerId ?: return
                     currentIsPlaying = true
+                    lastPlayingAtMs = System.currentTimeMillis()
                     optimisticUntil = System.currentTimeMillis() + 1000
                     updateMediaSession()
                     if (!hasAudioFocus) requestAudioFocus()
@@ -374,10 +386,13 @@ class SendspinService : Service() {
         } != null
     }
 
+    @Synchronized
     private fun startSendspin() {
-        // Cancel any existing collectors from a previous start (idempotency guard)
-        for (job in collectorJobs) job.cancel(CancellationException("Sendspin restart"))
-        collectorJobs.clear()
+        if (collectorJobs.isNotEmpty()) {
+            Log.d(TAG, "startSendspin ignored: service already initialized")
+            updateNotification()
+            return
+        }
 
         requestAudioFocus()
         registerNoisyReceiver()
@@ -416,7 +431,10 @@ class SendspinService : Service() {
                 }
                 val outsideOptimistic = System.currentTimeMillis() >= optimisticUntil
                 if (isStreaming && !wasStreaming) {
-                    if (outsideOptimistic) currentIsPlaying = true
+                    if (outsideOptimistic) {
+                        currentIsPlaying = true
+                        lastPlayingAtMs = System.currentTimeMillis()
+                    }
                     updateMediaSession()
                     updateNotification()
                 } else if (wasStreaming && state == SendspinState.SYNCING) {
@@ -452,7 +470,21 @@ class SendspinService : Service() {
                 .collect { player ->
                     lastSendspinReportedPlaying = player?.state == PlaybackState.PLAYING
                     val outsideOptimistic = System.currentTimeMillis() >= optimisticUntil
-                    if (outsideOptimistic) currentIsPlaying = lastSendspinReportedPlaying
+                    if (outsideOptimistic) {
+                        if (lastSendspinReportedPlaying) {
+                            currentIsPlaying = true
+                            lastPlayingAtMs = System.currentTimeMillis()
+                        } else if (currentIsPlaying && isStreaming) {
+                            val sincePlayingMs = System.currentTimeMillis() - lastPlayingAtMs
+                            if (sincePlayingMs >= PAUSE_DEBOUNCE_MS) {
+                                currentIsPlaying = false
+                            } else {
+                                Log.d(TAG, "Ignoring transient pause jitter (${sincePlayingMs}ms)")
+                            }
+                        } else {
+                            currentIsPlaying = false
+                        }
+                    }
                     if (!isStreaming || player == null) return@collect
                     val media = player.currentMedia
                     val title = media?.title ?: "MassDroid Speaker"
@@ -495,6 +527,7 @@ class SendspinService : Service() {
                 if (selectedId != sendspinPlayerId) return@collect
                 if (willPlay) {
                     currentIsPlaying = true
+                    lastPlayingAtMs = System.currentTimeMillis()
                     if (!hasAudioFocus) requestAudioFocus()
                     if (isSendspinReady) {
                         sendspinManager.resumeAudio()
@@ -527,8 +560,13 @@ class SendspinService : Service() {
             }
 
             sendspinPlayerId = clientId
-            sendspinManager.start(url, token, clientId, "MassDroid")
-            Log.d(TAG, "Sendspin started via service, playerId=$clientId")
+            val ssState = sendspinManager.connectionState.value
+            if (ssState == SendspinState.DISCONNECTED || ssState == SendspinState.ERROR) {
+                sendspinManager.start(url, token, clientId, "MassDroid")
+                Log.d(TAG, "Sendspin started via service, playerId=$clientId")
+            } else {
+                Log.d(TAG, "Sendspin already $ssState, skipping redundant start")
+            }
         }
 
         // Resume playback when MA reconnects after a drop (only if was playing before)
@@ -669,14 +707,27 @@ class SendspinService : Service() {
                 PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
                 PlaybackStateCompat.ACTION_SEEK_TO
 
-        val pbState = if (currentIsPlaying) PlaybackStateCompat.STATE_PLAYING
-        else if (isSendspinReady) PlaybackStateCompat.STATE_PAUSED
-        else PlaybackStateCompat.STATE_BUFFERING
+        val pbState = when {
+            currentIsPlaying && isStreaming -> PlaybackStateCompat.STATE_PLAYING
+            isSendspinReady -> PlaybackStateCompat.STATE_PAUSED
+            else -> PlaybackStateCompat.STATE_BUFFERING
+        }
+        val positionBucket = currentPositionMs / SESSION_POSITION_STEP_MS
+        val metadataChanged = currentTitle != lastSessionTitle ||
+                currentArtist != lastSessionArtist ||
+                currentAlbum != lastSessionAlbum ||
+                currentDurationMs != lastSessionDurationMs ||
+                currentArtUrl != lastSessionArtUrl
+        val playbackChanged = pbState != lastSessionPbState
+        val positionChanged = positionBucket != lastSessionPositionBucket
+
+        if (!metadataChanged && !playbackChanged && !positionChanged) return
+
         Log.d(TAG, "MediaSession state: playing=$currentIsPlaying, streaming=$isStreaming -> pbState=$pbState")
 
         val stateBuilder = PlaybackStateCompat.Builder()
             .setActions(actions)
-            .setState(pbState, currentPositionMs, if (currentIsPlaying) 1f else 0f)
+            .setState(pbState, currentPositionMs, if (pbState == PlaybackStateCompat.STATE_PLAYING) 1f else 0f)
         mediaSession?.setPlaybackState(stateBuilder.build())
 
         val metadataBuilder = MediaMetadataCompat.Builder()
@@ -690,6 +741,14 @@ class SendspinService : Service() {
             metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
         }
         mediaSession?.setMetadata(metadataBuilder.build())
+
+        lastSessionPbState = pbState
+        lastSessionPositionBucket = positionBucket
+        lastSessionTitle = currentTitle
+        lastSessionArtist = currentArtist
+        lastSessionAlbum = currentAlbum
+        lastSessionDurationMs = currentDurationMs
+        lastSessionArtUrl = currentArtUrl
     }
 
     private fun stopSendspin() {
@@ -697,6 +756,13 @@ class SendspinService : Service() {
         collectorJobs.clear()
         wasPlayingBeforeDisconnect = false
         lastSendspinReportedPlaying = false
+        lastSessionPbState = Int.MIN_VALUE
+        lastSessionPositionBucket = Long.MIN_VALUE
+        lastSessionTitle = ""
+        lastSessionArtist = ""
+        lastSessionAlbum = ""
+        lastSessionDurationMs = -1L
+        lastSessionArtUrl = null
         abandonAudioFocus()
         unregisterNoisyReceiver()
         sendspinManager.stop()

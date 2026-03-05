@@ -149,7 +149,7 @@ class MusicRepositoryImpl @Inject constructor(
             put("media", JsonArray(listOf(JsonPrimitive(uri))))
             option?.let { put("option", it) }
             if (radioMode) put("radio_mode", true)
-        })
+        }, awaitResponse = false)
     }
 
     override suspend fun playMedia(queueId: String, uris: List<String>, option: String?, radioMode: Boolean) {
@@ -158,7 +158,7 @@ class MusicRepositoryImpl @Inject constructor(
             put("media", JsonArray(uris.map { JsonPrimitive(it) }))
             option?.let { put("option", it) }
             if (radioMode) put("radio_mode", true)
-        })
+        }, awaitResponse = false)
     }
 
     override suspend fun shuffleQueue(queueId: String, enabled: Boolean) {
@@ -208,7 +208,7 @@ class MusicRepositoryImpl @Inject constructor(
         wsClient.sendCommand("player_queues/play_index", buildJsonObject {
             put("queue_id", queueId)
             put("index", index)
-        })
+        }, awaitResponse = false)
     }
 
     override suspend fun setFavorite(uri: String, mediaType: MediaType, itemId: String, favorite: Boolean) {

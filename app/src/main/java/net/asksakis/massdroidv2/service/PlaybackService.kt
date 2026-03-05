@@ -262,11 +262,23 @@ class PlaybackService : MediaLibraryService() {
             val rawBytes = response.body?.bytes()
             response.close()
             Log.d(TAG, "Artwork HTTP $code, type=$contentType, bytes=${rawBytes?.size ?: 0} for $url")
+            if (url != cachedArtworkUrl) {
+                Log.d(TAG, "Ignoring stale artwork response for $url (current=$cachedArtworkUrl)")
+                return
+            }
             if (rawBytes != null && rawBytes.isNotEmpty()) {
                 val resized = resizeArtwork(rawBytes)
+                if (url != cachedArtworkUrl) {
+                    Log.d(TAG, "Ignoring stale resized artwork for $url (current=$cachedArtworkUrl)")
+                    return
+                }
                 cachedArtworkData = resized
                 Log.d(TAG, "Artwork decoded+resized: ${resized.size} bytes, setting on player")
                 scope.launch {
+                    if (url != cachedArtworkUrl) {
+                        Log.d(TAG, "Skipping setArtwork for stale URL $url")
+                        return@launch
+                    }
                     remotePlayer?.setArtwork(resized)
                     Log.d(TAG, "Artwork setArtwork() called on Main thread")
                 }

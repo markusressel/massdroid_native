@@ -171,6 +171,7 @@ class MaWebSocketClient(
                 Log.d(TAG, "WebSocket closed: $code $reason")
                 this@MaWebSocketClient.webSocket = null
                 _connectionState.value = ConnectionState.Disconnected
+                failAllPending("Connection closed")
                 scheduleReconnect()
             }
 
@@ -245,6 +246,10 @@ class MaWebSocketClient(
                     val partial = obj["partial"]?.jsonPrimitive?.booleanOrNull ?: false
 
                     if (partial) {
+                        // Ignore unsolicited partial chunks for commands we did not await.
+                        if (!pendingRequests.containsKey(messageId) && !partialResults.containsKey(messageId)) {
+                            return
+                        }
                         val list = partialResults.getOrPut(messageId) { mutableListOf() }
                         if (result is JsonArray) list.addAll(result) else if (result != null) list.add(result)
                     } else {
@@ -261,7 +266,11 @@ class MaWebSocketClient(
 
                 "event" in obj -> {
                     val event = json.decodeFromJsonElement<ServerEvent>(obj)
-                    _events.tryEmit(event)
+                    if (!_events.tryEmit(event)) {
+                        scope.launch {
+                            _events.emit(event)
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -335,10 +344,18 @@ class MaWebSocketClient(
         })
     }
 
-    suspend fun sendCommand(command: String, args: JsonObject? = null): JsonElement? {
+    suspend fun sendCommand(
+        command: String,
+        args: JsonObject? = null,
+        awaitResponse: Boolean = true,
+        timeoutMs: Long = 30_000
+    ): JsonElement? {
         val messageId = UUID.randomUUID().toString().replace("-", "").take(12)
-        val deferred = CompletableDeferred<JsonElement?>()
-        pendingRequests[messageId] = deferred
+        val deferred = if (awaitResponse) {
+            CompletableDeferred<JsonElement?>().also { pendingRequests[messageId] = it }
+        } else {
+            null
+        }
 
         val msg = buildJsonObject {
             put("command", command)
@@ -351,9 +368,10 @@ class MaWebSocketClient(
             pendingRequests.remove(messageId)
             throw MaApiException("WebSocket not connected", -1)
         }
+        if (!awaitResponse) return null
 
         return try {
-            withTimeout(30_000) { deferred.await() }
+            withTimeout(timeoutMs) { deferred!!.await() }
         } catch (_: TimeoutCancellationException) {
             throw MaApiException("Request timed out", -1)
         } finally {

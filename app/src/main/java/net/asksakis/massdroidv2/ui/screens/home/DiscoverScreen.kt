@@ -50,8 +50,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -150,7 +150,7 @@ fun DiscoverScreen(
                     ) {
                         itemsIndexed(
                             items = sections,
-                            key = { index, section -> "${section::class.simpleName}:${sectionTitle(section)}:$index" },
+                            key = { _, section -> sectionKey(section) },
                             contentType = { _, section -> section::class.simpleName ?: "section" }
                         ) { _, section ->
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -308,6 +308,10 @@ private fun sectionTitle(section: DiscoverSection): String {
     }
 }
 
+private fun sectionKey(section: DiscoverSection): String {
+    return "${section::class.simpleName}:${sectionTitle(section)}"
+}
+
 @Composable
 private fun rememberSizedImageModel(
     url: String?,
@@ -351,7 +355,7 @@ private fun ArtistCard(
     Column(
         modifier = Modifier
             .width(90.dp)
-            .clearAndSetSemantics { contentDescription = artist.name }
+            .semantics { contentDescription = artist.name }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -406,7 +410,7 @@ private fun AlbumCard(
     Column(
         modifier = Modifier
             .width(110.dp)
-            .clearAndSetSemantics {
+            .semantics {
                 contentDescription = if (album.artistNames.isNotBlank()) {
                     "${album.name}, ${album.artistNames}"
                 } else {
@@ -472,7 +476,7 @@ private fun PlaylistCard(
     Column(
         modifier = Modifier
             .width(110.dp)
-            .clearAndSetSemantics { contentDescription = playlist.name }
+            .semantics { contentDescription = playlist.name }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -525,7 +529,7 @@ private fun TrackCard(
     Row(
         modifier = Modifier
             .width(200.dp)
-            .clearAndSetSemantics {
+            .semantics {
                 contentDescription = if (track.artistNames.isNotBlank()) {
                     "${track.name}, ${track.artistNames}"
                 } else {
@@ -597,7 +601,7 @@ private fun GenreChip(
             modifier = Modifier
                 .width(140.dp)
                 .aspectRatio(2f)
-                .clearAndSetSemantics { contentDescription = genre.name }
+                .semantics { contentDescription = genre.name }
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
