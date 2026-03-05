@@ -97,15 +97,16 @@ data class ServerMediaItem(
     val year: Int? = null,
     @SerialName("album_type") val albumType: String? = null
 ) {
-    /** Get the best image: direct image field, or first thumb from metadata.images */
+    /** Get the best image: direct image field, or first thumb from metadata.images. */
     fun resolveImageUrl(wsClient: MaWebSocketClient): String? {
         // 1. Direct image field
-        image?.path?.let { return wsClient.getImageUrl(it) }
-        // 2. From metadata.images - prefer thumb type, use remotely_accessible URLs directly
+        image?.resolveUrl(wsClient)?.let { return it }
+        // 2. From metadata.images - prefer thumb type
         val images = metadata?.images ?: return null
-        val thumb = images.firstOrNull { it.type == "thumb" } ?: images.firstOrNull() ?: return null
-        return if (thumb.remotelyAccessible) thumb.path
-        else wsClient.getImageUrl(thumb.path)
+        val thumb = images.firstOrNull { it.type.equals("thumb", ignoreCase = true) }
+            ?: images.firstOrNull()
+            ?: return null
+        return thumb.resolveUrl(wsClient)
     }
 }
 
@@ -131,6 +132,13 @@ data class MediaItemImage(
     @SerialName("provider") val imageProvider: String = "builtin",
     @SerialName("remotely_accessible") val remotelyAccessible: Boolean = false
 )
+
+private fun MediaItemImage.resolveUrl(wsClient: MaWebSocketClient): String? {
+    val p = path.trim()
+    if (p.isEmpty()) return null
+    if (p.equals("none", ignoreCase = true) || p.equals("null", ignoreCase = true)) return null
+    return wsClient.getImageUrl(p) ?: p
+}
 
 object EventType {
     const val PLAYER_UPDATED = "player_updated"

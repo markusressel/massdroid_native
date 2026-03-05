@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import net.asksakis.massdroidv2.domain.model.Album
 import net.asksakis.massdroidv2.domain.model.MediaType
 import net.asksakis.massdroidv2.ui.components.ActionSheetItem
+import net.asksakis.massdroidv2.ui.components.formatAlbumTypeYear
 import net.asksakis.massdroidv2.ui.components.MediaActionSheet
 import net.asksakis.massdroidv2.ui.components.MediaItemRow
 
@@ -161,7 +162,7 @@ fun ArtistDetailScreen(
                 }
                 items(albums, key = { it.uri }) { album ->
                     val subtitle = listOfNotNull(
-                        album.year?.toString(),
+                        formatAlbumTypeYear(album.albumType, album.year).ifBlank { null },
                         album.version?.ifEmpty { null }
                     ).joinToString(" \u00b7 ")
                     MediaItemRow(

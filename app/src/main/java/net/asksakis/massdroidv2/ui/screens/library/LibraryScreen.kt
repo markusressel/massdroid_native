@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.distinctUntilChanged
 import net.asksakis.massdroidv2.domain.model.*
 import net.asksakis.massdroidv2.ui.components.ActionSheetItem
+import net.asksakis.massdroidv2.ui.components.formatAlbumTypeYear
 import net.asksakis.massdroidv2.ui.components.MediaActionSheet
 import net.asksakis.massdroidv2.ui.components.MediaItemGrid
 import net.asksakis.massdroidv2.ui.components.MediaItemRow
@@ -268,7 +269,9 @@ fun LibraryScreen(
                         onLoadMore = { viewModel.loadMoreAlbums() },
                         key = { it.uri },
                         title = { it.name },
-                        subtitle = { listOfNotNull(it.artistNames.ifEmpty { null }, it.year?.toString()).joinToString(" · ") },
+                        subtitle = {
+                            formatAlbumTypeYear(it.albumType, it.year).ifBlank { it.artistNames }
+                        },
                         imageUrl = { it.imageUrl },
                         favorite = { it.favorite },
                         onClick = { onAlbumClick(it) },

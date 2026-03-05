@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import net.asksakis.massdroidv2.domain.model.*
+import net.asksakis.massdroidv2.ui.components.formatAlbumTypeYear
 import net.asksakis.massdroidv2.ui.components.MediaItemRow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -96,7 +97,8 @@ fun SearchScreen(
                     items(results.albums) { album ->
                         MediaItemRow(
                             title = album.name,
-                            subtitle = album.artistNames,
+                            subtitle = formatAlbumTypeYear(album.albumType, album.year)
+                                .ifBlank { album.artistNames },
                             imageUrl = album.imageUrl,
                             onClick = { onAlbumClick(album) }
                         )

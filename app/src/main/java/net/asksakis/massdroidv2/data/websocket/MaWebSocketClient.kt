@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.*
+import kotlin.math.min
 
 sealed class ConnectionState {
     data object Disconnected : ConnectionState()
@@ -30,6 +31,7 @@ class MaWebSocketClient(
         private const val INITIAL_BACKOFF_MS = 2_000L
         private const val MAX_BACKOFF_MS = 30_000L
         private const val STABLE_CONNECTION_RESET_MS = 30_000L
+        private const val COMMAND_RETRY_DELAY_MS = 140L
     }
 
     private var okHttpClient: OkHttpClient = baseOkHttpClient
@@ -395,35 +397,87 @@ class MaWebSocketClient(
         awaitResponse: Boolean = true,
         timeoutMs: Long = 30_000
     ): JsonElement? {
-        val messageId = UUID.randomUUID().toString().replace("-", "").take(12)
-        val deferred = if (awaitResponse) {
-            CompletableDeferred<JsonElement?>().also { pendingRequests[messageId] = it }
+        waitUntilReadyForCommand(command = command, awaitResponse = awaitResponse, timeoutMs = timeoutMs)
+        val maxAttempts = if (shouldRetryCommand(command)) 2 else 1
+        var attempt = 1
+        while (attempt <= maxAttempts) {
+            val messageId = UUID.randomUUID().toString().replace("-", "").take(12)
+            val deferred = if (awaitResponse) {
+                CompletableDeferred<JsonElement?>().also { pendingRequests[messageId] = it }
+            } else {
+                null
+            }
+
+            val msg = buildJsonObject {
+                put("command", command)
+                put("message_id", messageId)
+                if (args != null) put("args", args)
+            }
+
+            val ws = webSocket
+            if (ws == null || !ws.send(msg.toString())) {
+                pendingRequests.remove(messageId)
+                if (attempt < maxAttempts) {
+                    Log.w(TAG, "sendCommand('$command') send failed on attempt $attempt, retrying")
+                    delay(COMMAND_RETRY_DELAY_MS)
+                    waitUntilReadyForCommand(command = command, awaitResponse = awaitResponse, timeoutMs = timeoutMs)
+                    attempt++
+                    continue
+                }
+                throw MaApiException("WebSocket not connected", -1)
+            }
+            if (!awaitResponse) return null
+
+            try {
+                return withTimeout(timeoutMs) { deferred!!.await() }
+            } catch (_: TimeoutCancellationException) {
+                if (attempt < maxAttempts) {
+                    Log.w(TAG, "sendCommand('$command') timed out on attempt $attempt, retrying")
+                    delay(COMMAND_RETRY_DELAY_MS)
+                    waitUntilReadyForCommand(command = command, awaitResponse = awaitResponse, timeoutMs = timeoutMs)
+                    attempt++
+                    continue
+                }
+                throw MaApiException("Request timed out", -1)
+            } finally {
+                // Ensure no stale pending/partial state remains if request times out or caller is canceled.
+                pendingRequests.remove(messageId)
+                partialResults.remove(messageId)
+            }
+        }
+
+        throw MaApiException("Command failed", -1)
+    }
+
+    private suspend fun waitUntilReadyForCommand(
+        command: String,
+        awaitResponse: Boolean,
+        timeoutMs: Long
+    ) {
+        if (isAuthCommand(command)) return
+        if (_connectionState.value is ConnectionState.Connected) return
+
+        val waitTimeoutMs = if (awaitResponse) {
+            min(timeoutMs, 5_000L)
         } else {
-            null
+            min(timeoutMs, 2_000L)
         }
 
-        val msg = buildJsonObject {
-            put("command", command)
-            put("message_id", messageId)
-            if (args != null) put("args", args)
-        }
-
-        val ws = webSocket
-        if (ws == null || !ws.send(msg.toString())) {
-            pendingRequests.remove(messageId)
-            throw MaApiException("WebSocket not connected", -1)
-        }
-        if (!awaitResponse) return null
-
-        return try {
-            withTimeout(timeoutMs) { deferred!!.await() }
+        try {
+            withTimeout(waitTimeoutMs) {
+                connectionState.first { it is ConnectionState.Connected }
+            }
         } catch (_: TimeoutCancellationException) {
-            throw MaApiException("Request timed out", -1)
-        } finally {
-            // Ensure no stale pending/partial state remains if request times out or caller is canceled.
-            pendingRequests.remove(messageId)
-            partialResults.remove(messageId)
+            throw MaApiException("WebSocket not authenticated yet", -1)
         }
+    }
+
+    private fun isAuthCommand(command: String): Boolean {
+        return command == "auth" || command == "auth/login"
+    }
+
+    private fun shouldRetryCommand(command: String): Boolean {
+        return !isAuthCommand(command)
     }
 
     private fun failAllPending(reason: String) {

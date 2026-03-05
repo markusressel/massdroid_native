@@ -33,6 +33,7 @@ import coil.compose.AsyncImage
 import net.asksakis.massdroidv2.domain.model.Artist
 import net.asksakis.massdroidv2.domain.model.MediaType
 import net.asksakis.massdroidv2.ui.components.ActionSheetItem
+import net.asksakis.massdroidv2.ui.components.formatAlbumTypeYear
 import net.asksakis.massdroidv2.ui.components.MediaActionSheet
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -131,9 +132,10 @@ fun AlbumDetailScreen(
                         }
                     }
 
-                    // Metadata line: year, genres, label
+                    // Metadata line: type/year, genres, label
                     val metaParts = mutableListOf<String>()
-                    album?.year?.let { metaParts.add(it.toString()) }
+                    val typeYear = formatAlbumTypeYear(album?.albumType, album?.year)
+                    if (typeYear.isNotBlank()) metaParts.add(typeYear)
                     val genres = album?.genres ?: emptyList()
                     if (genres.isNotEmpty()) metaParts.add(genres.take(2).joinToString(", "))
                     album?.label?.let { if (it.isNotBlank()) metaParts.add(it) }

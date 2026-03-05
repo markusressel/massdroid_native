@@ -150,6 +150,7 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
+                musicRepository.requestLibrarySync(force = true)
                 reloadCurrentTab()
             } finally {
                 _isRefreshing.value = false
@@ -495,6 +496,8 @@ class ArtistDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
+                _artist.value?.uri?.let { musicRepository.refreshItemByUri(it) }
+                    ?: musicRepository.requestLibrarySync(force = true)
                 loadData(lazy = false)
             } finally {
                 _isRefreshing.value = false
@@ -662,6 +665,8 @@ class AlbumDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
+                _album.value?.uri?.let { musicRepository.refreshItemByUri(it) }
+                    ?: musicRepository.requestLibrarySync(force = true)
                 loadData(lazy = false)
             } finally {
                 _isRefreshing.value = false

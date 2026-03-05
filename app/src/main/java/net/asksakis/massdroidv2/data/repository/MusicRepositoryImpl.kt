@@ -1,6 +1,9 @@
 package net.asksakis.massdroidv2.data.repository
 
 import android.util.Log
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import net.asksakis.massdroidv2.data.websocket.*
 import net.asksakis.massdroidv2.domain.model.*
@@ -16,6 +19,16 @@ class MusicRepositoryImpl @Inject constructor(
     private val wsClient: MaWebSocketClient,
     private val json: Json
 ) : MusicRepository {
+    companion object {
+        private const val TAG = "MusicRepo"
+        private const val FAVORITE_ACK_TIMEOUT_MS = 1_000L
+        private const val FAVORITE_MAX_ATTEMPTS = 3
+        private const val FAVORITE_RETRY_DELAY_MS = 180L
+        private const val LIBRARY_SYNC_COOLDOWN_MS = 45_000L
+        private const val LIBRARY_SYNC_TIMEOUT_MS = 1_500L
+    }
+    private val librarySyncMutex = Mutex()
+    private var lastLibrarySyncAtMs = 0L
 
     override suspend fun getArtists(search: String?, limit: Int, offset: Int, orderBy: String?, favoriteOnly: Boolean): List<Artist> {
         val result = wsClient.sendCommand("music/artists/library_items", buildJsonObject {
@@ -211,18 +224,98 @@ class MusicRepositoryImpl @Inject constructor(
         }, awaitResponse = false)
     }
 
+    override suspend fun requestLibrarySync(force: Boolean): Boolean {
+        val now = System.currentTimeMillis()
+        return librarySyncMutex.withLock {
+            if (!force && now - lastLibrarySyncAtMs < LIBRARY_SYNC_COOLDOWN_MS) {
+                Log.d(TAG, "Skipping music/sync due cooldown")
+                return@withLock false
+            }
+            try {
+                wsClient.sendCommand(
+                    command = "music/sync",
+                    awaitResponse = true,
+                    timeoutMs = LIBRARY_SYNC_TIMEOUT_MS
+                )
+                lastLibrarySyncAtMs = now
+                Log.d(TAG, "Triggered MA library sync")
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "music/sync failed: ${e.message}")
+                false
+            }
+        }
+    }
+
+    override suspend fun refreshItemByUri(uri: String): Boolean {
+        return try {
+            val mediaItem = wsClient.sendCommand(
+                command = "music/item_by_uri",
+                args = buildJsonObject { put("uri", uri) },
+                awaitResponse = true,
+                timeoutMs = 5_000L
+            ) ?: return false
+
+            wsClient.sendCommand(
+                command = "music/refresh_item",
+                args = buildJsonObject { put("media_item", mediaItem) },
+                awaitResponse = true,
+                timeoutMs = 8_000L
+            )
+            Log.d(TAG, "Refreshed item via music/refresh_item: $uri")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "music/refresh_item failed for '$uri': ${e.message}")
+            false
+        }
+    }
+
     override suspend fun setFavorite(uri: String, mediaType: MediaType, itemId: String, favorite: Boolean) {
         if (favorite) {
-            wsClient.sendCommand("music/favorites/add_item", buildJsonObject {
+            sendFavoriteCommandWithRetry("music/favorites/add_item", buildJsonObject {
                 put("item", uri)
             })
         } else {
             val libraryItemId = resolveLibraryItemId(uri, itemId)
-            wsClient.sendCommand("music/favorites/remove_item", buildJsonObject {
+            sendFavoriteCommandWithRetry("music/favorites/remove_item", buildJsonObject {
                 put("media_type", mediaType.apiValue)
                 put("library_item_id", libraryItemId)
             })
         }
+    }
+
+    private suspend fun sendFavoriteCommandWithRetry(command: String, args: JsonObject) {
+        var attempt = 1
+        var lastError: MaApiException? = null
+        while (attempt <= FAVORITE_MAX_ATTEMPTS) {
+            try {
+                wsClient.sendCommand(
+                    command = command,
+                    args = args,
+                    awaitResponse = true,
+                    timeoutMs = FAVORITE_ACK_TIMEOUT_MS
+                )
+                return
+            } catch (e: MaApiException) {
+                lastError = e
+                if (!isTransientFavoriteError(e) || attempt >= FAVORITE_MAX_ATTEMPTS) {
+                    throw e
+                }
+                Log.w(TAG, "Favorite '$command' transient failure (attempt $attempt), retrying")
+                delay(FAVORITE_RETRY_DELAY_MS)
+                attempt++
+            }
+        }
+        throw lastError ?: MaApiException("Favorite command failed", -1)
+    }
+
+    private fun isTransientFavoriteError(e: MaApiException): Boolean {
+        if (e.code == -1) return true
+        val msg = e.message?.lowercase().orEmpty()
+        return msg.contains("timed out") ||
+            msg.contains("not connected") ||
+            msg.contains("connection") ||
+            msg.contains("closed")
     }
 
     private suspend fun resolveLibraryItemId(uri: String, itemId: String): Int {
@@ -268,7 +361,7 @@ class MusicRepositoryImpl @Inject constructor(
                     items = RecommendationItems(artists, albums, tracks, playlists)
                 )
             } catch (e: Exception) {
-                Log.e("MusicRepo", "Failed to parse recommendation folder", e)
+                Log.e(TAG, "Failed to parse recommendation folder", e)
                 null
             }
         }
@@ -281,10 +374,10 @@ class MusicRepositoryImpl @Inject constructor(
                 if (result.isNotEmpty()) {
                     // Log first item for debugging
                     val firstObj = result[0].jsonObject
-                    Log.d("MusicRepo", "Media item keys: ${firstObj.keys}")
+                    Log.d(TAG, "Media item keys: ${firstObj.keys}")
                     val imageField = firstObj["image"]?.toString()?.take(200) ?: "null"
                     val metadataImages = firstObj["metadata"]?.jsonObject?.get("images")?.toString()?.take(200) ?: "null"
-                    Log.d("MusicRepo", "image=$imageField metadata.images=$metadataImages")
+                    Log.d(TAG, "image=$imageField metadata.images=$metadataImages")
                 }
                 result.mapNotNull {
                     try { json.decodeFromJsonElement<ServerMediaItem>(it) } catch (_: Exception) { null }

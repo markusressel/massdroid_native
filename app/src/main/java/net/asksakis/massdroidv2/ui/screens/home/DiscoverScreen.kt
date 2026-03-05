@@ -67,6 +67,7 @@ import net.asksakis.massdroidv2.domain.model.Artist
 import net.asksakis.massdroidv2.domain.model.Playlist
 import net.asksakis.massdroidv2.domain.model.Track
 import net.asksakis.massdroidv2.domain.recommendation.DiscoverSection
+import net.asksakis.massdroidv2.ui.components.formatAlbumTypeYear
 import net.asksakis.massdroidv2.ui.components.EqualizerBars
 
 private val radioStartPhrases = listOf(
@@ -441,7 +442,9 @@ private fun AlbumCard(
             overflow = TextOverflow.Ellipsis
         )
         Text(
-            text = album.artistNames.ifBlank { "\u00A0" },
+            text = formatAlbumTypeYear(album.albumType, album.year).ifBlank {
+                album.artistNames.ifBlank { "\u00A0" }
+            },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,

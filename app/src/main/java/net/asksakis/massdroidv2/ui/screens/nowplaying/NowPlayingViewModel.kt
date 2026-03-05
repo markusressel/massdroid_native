@@ -113,12 +113,19 @@ class NowPlayingViewModel @Inject constructor(
 
     fun toggleFavorite() {
         val track = queueState.value?.currentItem?.track ?: return
+        val newFavorite = !track.favorite
         viewModelScope.launch {
             try {
-                musicRepository.setFavorite(track.uri, MediaType.TRACK, track.itemId, !track.favorite)
-                playerRepository.updateCurrentTrackFavorite(!track.favorite)
+                // Optimistic UI update so heart icon responds instantly.
+                playerRepository.updateCurrentTrackFavorite(newFavorite)
+                musicRepository.setFavorite(track.uri, MediaType.TRACK, track.itemId, newFavorite)
             } catch (e: Exception) {
                 Log.w(TAG, "toggleFavorite failed: ${e.message}")
+                // Roll back only if we're still on the same track.
+                if (queueState.value?.currentItem?.track?.uri == track.uri) {
+                    playerRepository.updateCurrentTrackFavorite(track.favorite)
+                }
+                _error.tryEmit("Failed to update favorite")
             }
         }
     }

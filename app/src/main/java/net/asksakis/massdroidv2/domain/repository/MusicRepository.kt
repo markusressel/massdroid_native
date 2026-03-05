@@ -30,6 +30,8 @@ interface MusicRepository {
     suspend fun moveQueueItem(queueId: String, queueItemId: String, posShift: Int)
     suspend fun playQueueIndex(queueId: String, index: Int)
 
+    suspend fun requestLibrarySync(force: Boolean = false): Boolean
+    suspend fun refreshItemByUri(uri: String): Boolean
     suspend fun setFavorite(uri: String, mediaType: MediaType, itemId: String, favorite: Boolean)
 }
 

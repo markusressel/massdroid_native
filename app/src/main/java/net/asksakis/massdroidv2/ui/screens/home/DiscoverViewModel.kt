@@ -22,6 +22,7 @@ import net.asksakis.massdroidv2.data.websocket.EventType
 import net.asksakis.massdroidv2.data.websocket.MaWebSocketClient
 import net.asksakis.massdroidv2.domain.model.Album
 import net.asksakis.massdroidv2.domain.model.Artist
+import net.asksakis.massdroidv2.domain.model.PlaybackState
 import net.asksakis.massdroidv2.domain.model.RecommendationFolder
 import net.asksakis.massdroidv2.domain.model.RecommendationItems
 import net.asksakis.massdroidv2.domain.model.Track
@@ -44,6 +45,10 @@ private const val RECENT_FAVORITE_ALBUMS_TITLE = "Recent Favorite Albums"
 private const val RECENT_FAVORITE_TRACKS_TITLE = "Recent Favorite Tracks"
 private const val RECENTLY_ADDED_TRACKS_TITLE = "Recently Added Tracks"
 private const val RECENT_TRACKS_QUERY_FACTOR = 5
+private const val BLL_ARTIST_SCORE_LIMIT = 500
+private const val MAX_GENRE_RADIO_ARTIST_URIS = 30
+private const val GENRE_RADIO_EXPLORATION_COUNT = 4
+private const val GENRE_RADIO_SPAM_WINDOW_MS = 1_500L
 
 data class GenreItem(
     val name: String,
@@ -79,7 +84,11 @@ class DiscoverViewModel @Inject constructor(
     private var cacheStale = true
     private var mediaEventJob: Job? = null
     private var fullLoadJob: Job? = null
+    private var radioStartJob: Job? = null
     private var loadGeneration = 0L
+    private var bllArtistScoreMap = emptyMap<String, Double>()
+    private var lastRadioStartAtMs = 0L
+    private var lastRadioStartGenre: String? = null
 
     init {
         autoConnect()
@@ -306,6 +315,7 @@ class DiscoverViewModel @Inject constructor(
         Log.d(TAG, "refresh() called, connection=$connState")
         viewModelScope.launch {
             if (connState is ConnectionState.Connected) {
+                musicRepository.requestLibrarySync(force = true)
                 loadFromServer(isManualRefresh = true)
             } else {
                 Log.d(TAG, "refresh() skipped: not connected")
@@ -364,7 +374,13 @@ class DiscoverViewModel @Inject constructor(
                 } catch (_: Exception) {
                     emptyList()
                 }
+                val bllArtistScores = try {
+                    playHistoryRepository.getScoredArtists(days = 90, limit = BLL_ARTIST_SCORE_LIMIT)
+                } catch (_: Exception) {
+                    emptyList()
+                }
                 if (generation != loadGeneration) return@launch
+                bllArtistScoreMap = bllArtistScores.associate { it.artistUri to it.score }
 
                 _sections.value = sectionBuilder.buildSections(
                     serverFolders = enrichedFolders,
@@ -651,18 +667,95 @@ class DiscoverViewModel @Inject constructor(
 
     fun startGenreRadio(genre: String) {
         val queueId = playerRepository.selectedPlayer.value?.playerId ?: return
-        val uris = genreArtists[genre]?.shuffled() ?: return
-        if (uris.isEmpty()) return
-        Log.d(TAG, "startGenreRadio: genre='$genre', ${uris.size} artist URIs: $uris")
-        _radioOverlayGenre.value = genre
-        viewModelScope.launch {
+        val nowMs = System.currentTimeMillis()
+        val candidateUris = genreArtists[genre]?.distinct().orEmpty()
+        if (candidateUris.isEmpty()) return
+        if (radioStartJob?.isActive == true) {
+            Log.d(TAG, "startGenreRadio ignored: request already in flight")
+            return
+        }
+        if (lastRadioStartGenre == genre && nowMs - lastRadioStartAtMs < GENRE_RADIO_SPAM_WINDOW_MS) {
+            Log.d(TAG, "startGenreRadio ignored: spam guard for genre='$genre'")
+            return
+        }
+        lastRadioStartGenre = genre
+        lastRadioStartAtMs = nowMs
+        val wasPlayingBefore = playerRepository.selectedPlayer.value?.state == PlaybackState.PLAYING
+        val baselineTrackUri = playerRepository.queueState.value?.currentItem?.track?.uri
+
+        radioStartJob = viewModelScope.launch {
             try {
-                musicRepository.playMedia(queueId, uris, radioMode = true)
+                ensureBllArtistScoresLoaded()
+                val rankedUris = rankGenreRadioArtistUris(candidateUris)
+                val payloadUris = rankedUris.take(MAX_GENRE_RADIO_ARTIST_URIS)
+                if (payloadUris.isEmpty()) return@launch
+
+                Log.d(
+                    TAG,
+                    "startGenreRadio: genre='$genre', sending ${payloadUris.size}/${candidateUris.size} artist URIs"
+                )
+                _radioOverlayGenre.value = genre
+                musicRepository.playMedia(queueId, payloadUris, radioMode = true)
+                waitForGenreRadioStart(
+                    wasPlayingBefore = wasPlayingBefore,
+                    baselineTrackUri = baselineTrackUri
+                )
+                _radioOverlayGenre.value = null
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start genre radio", e)
+                _radioOverlayGenre.value = null
+            } finally {
+                radioStartJob = null
             }
-            delay(2500)
-            _radioOverlayGenre.value = null
+        }
+    }
+
+    private suspend fun ensureBllArtistScoresLoaded() {
+        if (bllArtistScoreMap.isNotEmpty()) return
+        bllArtistScoreMap = try {
+            playHistoryRepository.getScoredArtists(days = 90, limit = BLL_ARTIST_SCORE_LIMIT)
+                .associate { it.artistUri to it.score }
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    private fun rankGenreRadioArtistUris(candidateUris: List<String>): List<String> {
+        val unique = candidateUris.distinct()
+        if (unique.isEmpty()) return emptyList()
+        val hasScores = bllArtistScoreMap.isNotEmpty()
+        val ranked = unique.shuffled().sortedByDescending { uri ->
+            bllArtistScoreMap[uri] ?: if (hasScores) Double.NEGATIVE_INFINITY else 0.0
+        }
+        val explorationCount = minOf(GENRE_RADIO_EXPLORATION_COUNT, ranked.size / 4)
+        val exploitCount = (MAX_GENRE_RADIO_ARTIST_URIS - explorationCount).coerceAtLeast(1)
+        val exploit = ranked.take(exploitCount)
+        val tail = ranked.drop(exploitCount)
+        val explore = tail.shuffled().take(explorationCount)
+        return (exploit + explore + tail).distinct()
+    }
+
+    private suspend fun waitForGenreRadioStart(
+        wasPlayingBefore: Boolean,
+        baselineTrackUri: String?
+    ) {
+        while (true) {
+            val player = playerRepository.selectedPlayer.value
+            val isPlayingNow = player?.state == PlaybackState.PLAYING
+            val currentTrackUri = playerRepository.queueState.value?.currentItem?.track?.uri
+                ?: player?.currentMedia?.uri
+            val playbackStarted = !wasPlayingBefore && isPlayingNow
+            val trackChanged = !baselineTrackUri.isNullOrBlank() &&
+                !currentTrackUri.isNullOrBlank() &&
+                currentTrackUri != baselineTrackUri
+            val gainedTrackContext = wasPlayingBefore &&
+                baselineTrackUri.isNullOrBlank() &&
+                !currentTrackUri.isNullOrBlank()
+
+            if (playbackStarted || trackChanged || gainedTrackContext) {
+                return
+            }
+            delay(120)
         }
     }
 
