@@ -58,6 +58,9 @@ class SendspinService : Service() {
         private const val TAG = "SendspinService"
         private const val PAUSE_DEBOUNCE_MS = 400L
         private const val SESSION_POSITION_STEP_MS = 1000L
+        private const val RECONNECT_STORM_WINDOW_MS = 45_000L
+        private const val RECONNECT_STORM_THRESHOLD = 3
+        private const val RECONNECT_COOLDOWN_MS = 30_000L
         const val ACTION_START = "net.asksakis.massdroidv2.SENDSPIN_START"
         const val ACTION_STOP = "net.asksakis.massdroidv2.SENDSPIN_STOP"
         private const val ACTION_PLAY_PAUSE = "net.asksakis.massdroidv2.SENDSPIN_PLAY_PAUSE"
@@ -127,6 +130,8 @@ class SendspinService : Service() {
     private var lastSessionAlbum = ""
     private var lastSessionDurationMs = -1L
     private var lastSessionArtUrl: String? = null
+    private val reconnectDropTimestampsMs = ArrayDeque<Long>()
+    private var reconnectCooldownUntilMs = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -423,6 +428,7 @@ class SendspinService : Service() {
                     wasPlayingBeforeDisconnect = sendspinWasPlaying
                     resumePositionSeconds = currentPositionMs / 1000.0
                     resumeTrackUri = currentTrackUri
+                    registerReconnectDrop()
                     Log.d(
                         TAG,
                         "Sendspin dropped while streaming, sendspinWasPlaying=$sendspinWasPlaying, " +
@@ -575,6 +581,11 @@ class SendspinService : Service() {
             wsClient.connectionState.collect { state ->
                 val isConnected = state is net.asksakis.massdroidv2.data.websocket.ConnectionState.Connected
                 if (isConnected && connectedBefore) {
+                    waitForReconnectCooldownIfNeeded()
+                    if (wsClient.connectionState.value !is net.asksakis.massdroidv2.data.websocket.ConnectionState.Connected) {
+                        Log.d(TAG, "Reconnect cooldown ended after connection changed, skipping cycle")
+                        return@collect
+                    }
                     val url = settingsRepository.serverUrl.first()
                     val token = wsClient.authToken ?: settingsRepository.authToken.first()
                     var clientId = settingsRepository.sendspinClientId.first()
@@ -698,6 +709,32 @@ class SendspinService : Service() {
         }
     }
 
+    private fun registerReconnectDrop(nowMs: Long = System.currentTimeMillis()) {
+        reconnectDropTimestampsMs.addLast(nowMs)
+        while (reconnectDropTimestampsMs.isNotEmpty() &&
+            nowMs - reconnectDropTimestampsMs.first() > RECONNECT_STORM_WINDOW_MS
+        ) {
+            reconnectDropTimestampsMs.removeFirst()
+        }
+        if (reconnectDropTimestampsMs.size >= RECONNECT_STORM_THRESHOLD) {
+            reconnectCooldownUntilMs = maxOf(reconnectCooldownUntilMs, nowMs + RECONNECT_COOLDOWN_MS)
+            Log.w(
+                TAG,
+                "Reconnect storm detected (${reconnectDropTimestampsMs.size} drops in ${RECONNECT_STORM_WINDOW_MS}ms), " +
+                        "cooling down for ${RECONNECT_COOLDOWN_MS}ms"
+            )
+            reconnectDropTimestampsMs.clear()
+        }
+    }
+
+    private suspend fun waitForReconnectCooldownIfNeeded() {
+        val remainingMs = reconnectCooldownUntilMs - System.currentTimeMillis()
+        if (remainingMs > 0) {
+            Log.w(TAG, "Reconnect cooldown active, delaying auto-resume by ${remainingMs}ms")
+            delay(remainingMs)
+        }
+    }
+
     private fun updateMediaSession() {
         val actions = PlaybackStateCompat.ACTION_STOP or
                 PlaybackStateCompat.ACTION_PLAY or
@@ -763,6 +800,8 @@ class SendspinService : Service() {
         lastSessionAlbum = ""
         lastSessionDurationMs = -1L
         lastSessionArtUrl = null
+        reconnectDropTimestampsMs.clear()
+        reconnectCooldownUntilMs = 0L
         abandonAudioFocus()
         unregisterNoisyReceiver()
         sendspinManager.stop()

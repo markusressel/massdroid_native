@@ -10,6 +10,7 @@ import java.security.PrivateKey
 import java.security.cert.X509Certificate
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.*
 
@@ -28,6 +29,7 @@ class MaWebSocketClient(
         private const val TAG = "MaWsClient"
         private const val INITIAL_BACKOFF_MS = 2_000L
         private const val MAX_BACKOFF_MS = 30_000L
+        private const val STABLE_CONNECTION_RESET_MS = 30_000L
     }
 
     private var okHttpClient: OkHttpClient = baseOkHttpClient
@@ -54,7 +56,9 @@ class MaWebSocketClient(
     private var userDisconnected = false
     private var reconnectJob: Job? = null
     private var currentBackoffMs = INITIAL_BACKOFF_MS
+    private var reconnectAttempts = 0
     private var connectionGeneration = 0
+    private var lastAuthenticatedAtMs = 0L
 
     fun setSavedCredentials(username: String, password: String) {
         if (username.isNotBlank() && password.isNotBlank()) {
@@ -98,6 +102,15 @@ class MaWebSocketClient(
     }
 
     fun connect(url: String, token: String) {
+        val hasOngoingReconnect = reconnectJob?.isActive == true
+        val sameEndpoint = serverUrl == url && authToken == token
+        val isActiveOrConnecting = webSocket != null ||
+                _connectionState.value is ConnectionState.Connecting ||
+                _connectionState.value is ConnectionState.Connected
+        if (!userDisconnected && sameEndpoint && (isActiveOrConnecting || hasOngoingReconnect)) {
+            Log.d(TAG, "connect() ignored: connection already active/connecting for $url")
+            return
+        }
         serverUrl = url
         authToken = token
         pendingLogin = null
@@ -112,6 +125,15 @@ class MaWebSocketClient(
         password: String,
         onToken: (String) -> Unit
     ) {
+        val hasOngoingReconnect = reconnectJob?.isActive == true
+        val sameEndpoint = serverUrl == url && pendingLogin == (username to password)
+        val isActiveOrConnecting = webSocket != null ||
+                _connectionState.value is ConnectionState.Connecting ||
+                _connectionState.value is ConnectionState.Connected
+        if (!userDisconnected && sameEndpoint && (isActiveOrConnecting || hasOngoingReconnect)) {
+            Log.d(TAG, "connectWithLogin() ignored: connection already active/connecting for $url")
+            return
+        }
         serverUrl = url
         authToken = null
         pendingLogin = username to password
@@ -171,6 +193,7 @@ class MaWebSocketClient(
                 Log.d(TAG, "WebSocket closed: $code $reason")
                 this@MaWebSocketClient.webSocket = null
                 _connectionState.value = ConnectionState.Disconnected
+                maybeResetBackoffForStableConnection()
                 failAllPending("Connection closed")
                 scheduleReconnect()
             }
@@ -180,6 +203,7 @@ class MaWebSocketClient(
                 Log.e(TAG, "WebSocket failure: ${t.message}")
                 this@MaWebSocketClient.webSocket = null
                 _connectionState.value = ConnectionState.Error(t.message ?: "Connection failed")
+                maybeResetBackoffForStableConnection()
                 failAllPending("Connection lost")
                 scheduleReconnect()
             }
@@ -199,11 +223,19 @@ class MaWebSocketClient(
         if (userDisconnected) return
         val url = serverUrl ?: return
         if (authToken == null && pendingLogin == null && savedCredentials == null) return
+        if (reconnectJob?.isActive == true) return
 
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
-            Log.d(TAG, "Reconnecting in ${currentBackoffMs}ms")
-            delay(currentBackoffMs)
+            val attempt = reconnectAttempts + 1
+            val jitterFactor = ThreadLocalRandom.current().nextDouble(0.85, 1.30)
+            val delayMs = (currentBackoffMs * jitterFactor)
+                .toLong()
+                .coerceIn(INITIAL_BACKOFF_MS, MAX_BACKOFF_MS)
+            Log.d(TAG, "Reconnecting in ${delayMs}ms (attempt=$attempt, base=${currentBackoffMs}ms)")
+            delay(delayMs)
+            if (userDisconnected) return@launch
+            reconnectAttempts = attempt
             currentBackoffMs = (currentBackoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
             Log.d(TAG, "Attempting reconnect to $url")
             doConnect(url)
@@ -213,6 +245,11 @@ class MaWebSocketClient(
     private fun cancelReconnect() {
         reconnectJob?.cancel()
         reconnectJob = null
+        resetReconnectBackoff()
+    }
+
+    private fun resetReconnectBackoff() {
+        reconnectAttempts = 0
         currentBackoffMs = INITIAL_BACKOFF_MS
     }
 
@@ -303,13 +340,21 @@ class MaWebSocketClient(
                 }
 
                 Log.d(TAG, "Authenticated")
-                currentBackoffMs = INITIAL_BACKOFF_MS
+                lastAuthenticatedAtMs = System.currentTimeMillis()
                 _connectionState.value = ConnectionState.Connected(serverInfo!!)
             } catch (e: Exception) {
                 Log.e(TAG, "Auth failed: ${e.message}")
                 authToken = null
                 _connectionState.value = ConnectionState.Error("Authentication failed: ${e.message}")
             }
+        }
+    }
+
+    private fun maybeResetBackoffForStableConnection(nowMs: Long = System.currentTimeMillis()) {
+        val connectedForMs = nowMs - lastAuthenticatedAtMs
+        if (lastAuthenticatedAtMs > 0L && connectedForMs >= STABLE_CONNECTION_RESET_MS) {
+            Log.d(TAG, "Stable connection lasted ${connectedForMs}ms, resetting reconnect backoff")
+            resetReconnectBackoff()
         }
     }
 
