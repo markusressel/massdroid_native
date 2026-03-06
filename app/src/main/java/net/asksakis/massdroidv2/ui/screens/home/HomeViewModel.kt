@@ -40,6 +40,7 @@ class HomeViewModel @Inject constructor(
     init {
         // Auto-connect on startup if we have saved credentials
         viewModelScope.launch {
+            wsClient.startupReady.first { it }
             val state = wsClient.connectionState.value
             if (state is ConnectionState.Disconnected) {
                 val url = settingsRepository.serverUrl.first()
@@ -60,6 +61,7 @@ class HomeViewModel @Inject constructor(
 
     fun connectIfNeeded() {
         viewModelScope.launch {
+            wsClient.startupReady.first { it }
             val state = wsClient.connectionState.value
             if (state is ConnectionState.Disconnected) {
                 val url = settingsRepository.serverUrl.first()

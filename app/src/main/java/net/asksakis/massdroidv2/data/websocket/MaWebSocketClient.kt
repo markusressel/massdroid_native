@@ -43,6 +43,8 @@ class MaWebSocketClient(
 
     private val _events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<ServerEvent> = _events.asSharedFlow()
+    private val _startupReady = MutableStateFlow(false)
+    val startupReady: StateFlow<Boolean> = _startupReady.asStateFlow()
 
     private val pendingRequests = ConcurrentHashMap<String, CompletableDeferred<JsonElement?>>()
     private val partialResults = ConcurrentHashMap<String, MutableList<JsonElement>>()
@@ -101,6 +103,10 @@ class MaWebSocketClient(
     fun clearMtls() {
         okHttpClient = baseOkHttpClient
         Log.d(TAG, "mTLS cleared")
+    }
+
+    fun markStartupReady() {
+        _startupReady.value = true
     }
 
     fun connect(url: String, token: String) {

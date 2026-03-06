@@ -130,8 +130,14 @@ class PlayerRepositoryImpl @Inject constructor(
                     is ConnectionState.Connected -> {
                         refreshPlayers()
                         settingsRepository.selectedPlayerId.first()?.let { id ->
-                            selectPlayer(id)
-                            Log.d(TAG, "Restored saved player: $id")
+                            val sendspinId = settingsRepository.sendspinClientId.first()
+                            if (id == sendspinId) {
+                                settingsRepository.setSelectedPlayerId(null)
+                                Log.d(TAG, "Ignoring persisted sendspin player selection: $id")
+                            } else {
+                                selectPlayer(id)
+                                Log.d(TAG, "Restored saved player: $id")
+                            }
                         }
                     }
                     else -> {}
@@ -694,7 +700,10 @@ class PlayerRepositoryImpl @Inject constructor(
         isPlaying = player?.state == PlaybackState.PLAYING
         stopPositionTicker()
         scope.launch {
-            settingsRepository.setSelectedPlayerId(playerId)
+            val sendspinId = settingsRepository.sendspinClientId.first()
+            if (playerId != sendspinId) {
+                settingsRepository.setSelectedPlayerId(playerId)
+            }
             refreshQueueForPlayer(playerId)
             scheduleBlockedQueueCleanup(playerId, reason = "select_player", force = true)
         }

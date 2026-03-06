@@ -56,6 +56,7 @@ class MassDroidApp : Application(), ImageLoaderFactory {
                 wsClient.setSavedCredentials(username, password)
                 Log.d("MassDroidApp", "Saved credentials loaded for user: $username")
             }
+            wsClient.markStartupReady()
         }
 
         // Clean up old play history entries
