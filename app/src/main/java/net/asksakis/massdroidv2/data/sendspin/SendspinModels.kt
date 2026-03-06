@@ -143,6 +143,7 @@ sealed class SendspinIncoming {
     data class AuthError(val message: String) : SendspinIncoming()
     data class ServerHello(val raw: JsonObject) : SendspinIncoming()
     data class ServerTime(val payload: ServerTimePayload) : SendspinIncoming()
+    data object GroupUpdate : SendspinIncoming()
     data class StreamStart(val payload: StreamStartPayload) : SendspinIncoming()
     data object StreamEnd : SendspinIncoming()
     data object StreamClear : SendspinIncoming()
@@ -166,6 +167,7 @@ sealed class SendspinIncoming {
                         obj["payload"]!!
                     )
                 )
+                "group/update" -> GroupUpdate
                 "stream/start" -> StreamStart(
                     json.decodeFromJsonElement(
                         StreamStartPayload.serializer(),

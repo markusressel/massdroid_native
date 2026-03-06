@@ -113,6 +113,7 @@ class SendspinService : Service() {
     private var lastSendspinReportedPlaying = false
     private var resumePositionSeconds = 0.0
     private var resumeTrackUri: String? = null
+    private var resumeQueueTrackUris: List<String> = emptyList()
     private var currentTrackUri: String? = null
     private var currentTitle = ""
     private var currentArtist = ""
@@ -122,6 +123,7 @@ class SendspinService : Service() {
     private var currentIsPlaying = false
     private var optimisticUntil = 0L
     private var sendspinPlayerId: String? = null
+    private var lastKnownSendspinQueueTrackUris: List<String> = emptyList()
     private val collectorJobs = mutableListOf<Job>()
     private var lastPlayingAtMs = 0L
     private var lastSessionPbState = Int.MIN_VALUE
@@ -131,6 +133,7 @@ class SendspinService : Service() {
     private var lastSessionAlbum = ""
     private var lastSessionDurationMs = -1L
     private var lastSessionArtUrl: String? = null
+    private val reconnectDropLock = Any()
     private val reconnectDropTimestampsMs = ArrayDeque<Long>()
     private var reconnectCooldownUntilMs = 0L
 
@@ -235,6 +238,7 @@ class SendspinService : Service() {
     }
 
     private fun abandonAudioFocus() {
+        if (!::focusRequest.isInitialized) return
         audioManager.abandonAudioFocusRequest(focusRequest)
         hasAudioFocus = false
         Log.d(TAG, "Audio focus abandoned")
@@ -266,17 +270,6 @@ class SendspinService : Service() {
             it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
                 it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO
         }
-
-    private fun autoSelectSendspinIfBluetooth() {
-        if (hasBluetoothAudioOutput()) {
-            val id = sendspinPlayerId ?: return
-            val currentSelectedId = playerRepository.selectedPlayer.value?.playerId
-            if (currentSelectedId != id) {
-                Log.d(TAG, "BT AVRCP command with BT audio output, selecting sendspin player")
-                playerRepository.selectPlayer(id)
-            }
-        }
-    }
 
     private fun setupMediaSession() {
         mediaSession = MediaSessionCompat(this, "MassDroidSpeaker").apply {
@@ -310,7 +303,6 @@ class SendspinService : Service() {
                         else -> "keyCode=$keyCode"
                     }
                     Log.d(TAG, "BT mediaButton: $keyName $action, currentIsPlaying=$currentIsPlaying, pbState=${if (currentIsPlaying) "PLAYING" else if (isSendspinReady) "PAUSED" else "BUFFERING"}")
-                    autoSelectSendspinIfBluetooth()
                     return super.onMediaButtonEvent(mediaButtonEvent)
                 }
                 override fun onStop() {
@@ -434,6 +426,7 @@ class SendspinService : Service() {
                     wasPlayingBeforeDisconnect = sendspinWasPlaying
                     resumePositionSeconds = currentPositionMs / 1000.0
                     resumeTrackUri = currentTrackUri
+                    resumeQueueTrackUris = lastKnownSendspinQueueTrackUris
                     registerReconnectDrop()
                     Log.d(
                         TAG,
@@ -555,10 +548,17 @@ class SendspinService : Service() {
             }
         }
 
+        collectorJobs += scope.launch {
+            playerRepository.queueItemsChanged.collect { queueId ->
+                if (queueId != sendspinPlayerId) return@collect
+                snapshotSendspinQueue(queueId)
+            }
+        }
+
         // Read settings and start sendspin
         collectorJobs += scope.launch {
             val url = settingsRepository.serverUrl.first()
-            val token = settingsRepository.authToken.first()
+            val token = wsClient.authToken ?: settingsRepository.authToken.first()
             if (url.isBlank() || token.isBlank()) {
                 Log.e(TAG, "No server URL or token, stopping")
                 stopSelf()
@@ -645,14 +645,25 @@ class SendspinService : Service() {
                                 try {
                                     // Start playback
                                     if (trackUri != null) {
-                                        val queueItems = musicRepository.getQueueItems(clientId)
-                                        val idx = queueItems.indexOfFirst { it.track?.uri == trackUri }
+                                        val idx = waitForQueueTrackIndex(
+                                            queueId = clientId,
+                                            trackUri = trackUri
+                                        )
                                         if (idx >= 0) {
                                             Log.d(TAG, "Found track at queue index $idx, using play_index")
                                             musicRepository.playQueueIndex(clientId, idx)
+                                        } else if (restoreSavedQueueSnapshot(clientId, trackUri)) {
+                                            val restoredIdx = waitForQueueTrackIndex(clientId, trackUri)
+                                            if (restoredIdx >= 0) {
+                                                Log.d(TAG, "Restored saved queue snapshot, using play_index=$restoredIdx")
+                                                musicRepository.playQueueIndex(clientId, restoredIdx)
+                                            } else {
+                                                Log.w(TAG, "Saved queue snapshot restored but track still missing, aborting auto-resume")
+                                                break
+                                            }
                                         } else {
-                                            Log.d(TAG, "Track not in queue, using play_media")
-                                            musicRepository.playMedia(clientId, trackUri)
+                                            Log.w(TAG, "Track not found in queue and no saved snapshot available, aborting auto-resume")
+                                            break
                                         }
                                     } else {
                                         Log.d(TAG, "No track URI saved, using generic play")
@@ -700,6 +711,38 @@ class SendspinService : Service() {
         }
     }
 
+    private suspend fun waitForQueueTrackIndex(queueId: String, trackUri: String): Int {
+        repeat(8) { attempt ->
+            val queueItems = musicRepository.getQueueItems(queueId)
+            val idx = queueItems.indexOfFirst { it.track?.uri == trackUri }
+            if (idx >= 0) return idx
+            if (attempt < 7) delay(350)
+        }
+        return -1
+    }
+
+    private suspend fun restoreSavedQueueSnapshot(queueId: String, trackUri: String): Boolean {
+        val snapshotUris = resumeQueueTrackUris
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (snapshotUris.isEmpty() || trackUri !in snapshotUris) return false
+        Log.d(TAG, "Restoring saved sendspin queue snapshot (${snapshotUris.size} tracks)")
+        musicRepository.playMedia(queueId, snapshotUris, option = "replace")
+        return true
+    }
+
+    private suspend fun snapshotSendspinQueue(queueId: String) {
+        try {
+            val uris = musicRepository.getQueueItems(queueId, limit = 500, offset = 0)
+                .mapNotNull { it.track?.uri?.takeIf { uri -> uri.isNotBlank() } }
+            if (uris.isNotEmpty()) {
+                lastKnownSendspinQueueTrackUris = uris
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to snapshot sendspin queue: ${e.message}")
+        }
+    }
+
     private suspend fun loadArt(url: String?): Bitmap? {
         if (url == null) return null
         return withContext(Dispatchers.IO) {
@@ -716,20 +759,22 @@ class SendspinService : Service() {
     }
 
     private fun registerReconnectDrop(nowMs: Long = System.currentTimeMillis()) {
-        reconnectDropTimestampsMs.addLast(nowMs)
-        while (reconnectDropTimestampsMs.isNotEmpty() &&
-            nowMs - reconnectDropTimestampsMs.first() > RECONNECT_STORM_WINDOW_MS
-        ) {
-            reconnectDropTimestampsMs.removeFirst()
-        }
-        if (reconnectDropTimestampsMs.size >= RECONNECT_STORM_THRESHOLD) {
-            reconnectCooldownUntilMs = maxOf(reconnectCooldownUntilMs, nowMs + RECONNECT_COOLDOWN_MS)
-            Log.w(
-                TAG,
-                "Reconnect storm detected (${reconnectDropTimestampsMs.size} drops in ${RECONNECT_STORM_WINDOW_MS}ms), " +
-                        "cooling down for ${RECONNECT_COOLDOWN_MS}ms"
-            )
-            reconnectDropTimestampsMs.clear()
+        synchronized(reconnectDropLock) {
+            reconnectDropTimestampsMs.addLast(nowMs)
+            while (reconnectDropTimestampsMs.isNotEmpty() &&
+                nowMs - reconnectDropTimestampsMs.first() > RECONNECT_STORM_WINDOW_MS
+            ) {
+                reconnectDropTimestampsMs.removeFirst()
+            }
+            if (reconnectDropTimestampsMs.size >= RECONNECT_STORM_THRESHOLD) {
+                reconnectCooldownUntilMs = maxOf(reconnectCooldownUntilMs, nowMs + RECONNECT_COOLDOWN_MS)
+                Log.w(
+                    TAG,
+                    "Reconnect storm detected (${reconnectDropTimestampsMs.size} drops in ${RECONNECT_STORM_WINDOW_MS}ms), " +
+                            "cooling down for ${RECONNECT_COOLDOWN_MS}ms"
+                )
+                reconnectDropTimestampsMs.clear()
+            }
         }
     }
 
@@ -806,7 +851,9 @@ class SendspinService : Service() {
         lastSessionAlbum = ""
         lastSessionDurationMs = -1L
         lastSessionArtUrl = null
-        reconnectDropTimestampsMs.clear()
+        synchronized(reconnectDropLock) {
+            reconnectDropTimestampsMs.clear()
+        }
         reconnectCooldownUntilMs = 0L
         abandonAudioFocus()
         unregisterNoisyReceiver()
@@ -900,7 +947,13 @@ class SendspinService : Service() {
 
         @Suppress("DEPRECATION")
         val wm = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-        wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "MassDroid::Sendspin")
+        val wifiMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+        } else {
+            @Suppress("DEPRECATION")
+            WifiManager.WIFI_MODE_FULL_HIGH_PERF
+        }
+        wifiLock = wm.createWifiLock(wifiMode, "MassDroid::Sendspin")
         wifiLock?.acquire()
     }
 

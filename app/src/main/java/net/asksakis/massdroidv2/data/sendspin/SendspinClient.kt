@@ -40,6 +40,7 @@ class SendspinClient(
         private const val TAG = "SendspinClient"
         private const val MAX_RECONNECT_ATTEMPTS = 10
         private val BACKOFF_MS = longArrayOf(1000, 2000, 3000, 5000, 10000)
+        private const val BINARY_FRAME_BUFFER_CAPACITY = 2048
     }
 
     private var webSocket: WebSocket? = null
@@ -52,7 +53,7 @@ class SendspinClient(
     private val _textMessages = MutableSharedFlow<SendspinIncoming>(extraBufferCapacity = 64)
     val textMessages: SharedFlow<SendspinIncoming> = _textMessages.asSharedFlow()
 
-    private val _binaryMessages = MutableSharedFlow<ByteArray>(extraBufferCapacity = 256)
+    private val _binaryMessages = MutableSharedFlow<ByteArray>(extraBufferCapacity = BINARY_FRAME_BUFFER_CAPACITY)
     val binaryMessages: SharedFlow<ByteArray> = _binaryMessages.asSharedFlow()
 
     private var errorMessage: String? = null
@@ -102,6 +103,7 @@ class SendspinClient(
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (gen != connectionGeneration) return
                 reconnectAttempt = 0
+                droppedBinaryFrames = 0
                 _state.value = SendspinState.AUTHENTICATING
                 // Proxy mode: first message must be auth
                 val auth = SendspinAuthMessage(token = token, clientId = clientId)

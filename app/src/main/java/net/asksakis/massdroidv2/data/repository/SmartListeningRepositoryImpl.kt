@@ -4,6 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import net.asksakis.massdroidv2.data.database.AlbumEntity
 import net.asksakis.massdroidv2.data.database.ArtistFeedbackSignalRow
 import net.asksakis.massdroidv2.data.database.ArtistEntity
 import net.asksakis.massdroidv2.data.database.BlockedArtistEntity
@@ -139,6 +140,17 @@ class SmartListeningRepositoryImpl @Inject constructor(
         val normalized = normalizeArtists(track, artists)
         if (normalized.isEmpty()) return
 
+        if (!albumKey.isNullOrBlank()) {
+            dao.insertAlbum(
+                AlbumEntity(
+                    uri = albumKey,
+                    name = track.albumName,
+                    imageUrl = track.imageUrl,
+                    year = sanitizeYear(track.year)
+                )
+            )
+        }
+
         val feedback = normalized.map { (artistUri, _) ->
             SmartFeedbackEntity(
                 trackUri = trackKey,
@@ -184,6 +196,8 @@ class SmartListeningRepositoryImpl @Inject constructor(
             .ifBlank { "Artist" }
         return listOf(primaryUri to primaryName)
     }
+
+    private fun sanitizeYear(year: Int?): Int? = year?.takeIf { it > 0 }
 
     private fun computeArtistMetrics(rows: List<ArtistFeedbackSignalRow>): Map<String, ArtistLearningMetrics> {
         val now = System.currentTimeMillis()

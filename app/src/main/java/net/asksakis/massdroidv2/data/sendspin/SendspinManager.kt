@@ -104,6 +104,10 @@ class SendspinManager(
                 // Time sync not used on mobile (unreliable)
             }
 
+            is SendspinIncoming.GroupUpdate -> {
+                // Group state updates are informative only for now.
+            }
+
             is SendspinIncoming.StreamStart -> {
                 val info = incoming.payload.player
                 Log.d(TAG, "Stream start: ${info.codec} ${info.sampleRate}Hz ${info.channels}ch, " +
