@@ -35,8 +35,9 @@ import net.asksakis.massdroidv2.domain.model.Artist
 import net.asksakis.massdroidv2.domain.model.MediaType
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
 import net.asksakis.massdroidv2.ui.components.ActionSheetItem
-import net.asksakis.massdroidv2.ui.components.formatAlbumTypeYear
 import net.asksakis.massdroidv2.ui.components.MediaActionSheet
+import net.asksakis.massdroidv2.ui.components.SheetDefaults
+import net.asksakis.massdroidv2.ui.components.formatAlbumTypeYear
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -214,9 +215,13 @@ fun AlbumDetailScreen(
                     }
 
                     if (showPlaySheet) {
-                        ModalBottomSheet(onDismissRequest = { showPlaySheet = false }) {
+                        ModalBottomSheet(
+                            onDismissRequest = { showPlaySheet = false },
+                            containerColor = SheetDefaults.containerColor()
+                        ) {
                             Column(modifier = Modifier.padding(bottom = 32.dp)) {
                                 ListItem(
+                                    colors = SheetDefaults.listItemColors(),
                                     headlineContent = { Text("Play Next") },
                                     supportingContent = { Text("Insert after current track") },
                                     leadingContent = { Icon(Icons.Default.SkipNext, contentDescription = null) },
@@ -226,6 +231,7 @@ fun AlbumDetailScreen(
                                     }
                                 )
                                 ListItem(
+                                    colors = SheetDefaults.listItemColors(),
                                     headlineContent = { Text("Add to Queue") },
                                     supportingContent = { Text("Add to end of queue") },
                                     leadingContent = { Icon(Icons.Default.QueueMusic, contentDescription = null) },
@@ -235,6 +241,7 @@ fun AlbumDetailScreen(
                                     }
                                 )
                                 ListItem(
+                                    colors = SheetDefaults.listItemColors(),
                                     headlineContent = { Text("Replace Queue") },
                                     supportingContent = { Text("Replace queue without playing") },
                                     leadingContent = { Icon(Icons.Default.PlaylistPlay, contentDescription = null) },
@@ -244,6 +251,7 @@ fun AlbumDetailScreen(
                                     }
                                 )
                                 ListItem(
+                                    colors = SheetDefaults.listItemColors(),
                                     headlineContent = { Text("Start Radio") },
                                     supportingContent = { Text("Play similar tracks") },
                                     leadingContent = { Icon(Icons.Default.Radio, contentDescription = null) },

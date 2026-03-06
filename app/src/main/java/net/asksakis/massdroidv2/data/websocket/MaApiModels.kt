@@ -95,6 +95,7 @@ data class ServerMediaItem(
     val version: String? = null,
     val position: Int? = null,
     val year: Int? = null,
+    @SerialName("is_editable") val isEditable: Boolean? = null,
     @SerialName("album_type") val albumType: String? = null
 ) {
     /** Get the best image: direct image field, or first thumb from metadata.images. */

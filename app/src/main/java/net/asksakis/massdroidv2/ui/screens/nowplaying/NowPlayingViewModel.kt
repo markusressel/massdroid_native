@@ -4,12 +4,16 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import net.asksakis.massdroidv2.data.websocket.MaApiException
+import net.asksakis.massdroidv2.data.websocket.EventType
+import net.asksakis.massdroidv2.data.websocket.MaWebSocketClient
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.asksakis.massdroidv2.domain.model.MediaType
 import net.asksakis.massdroidv2.domain.model.Playlist
@@ -21,12 +25,12 @@ import net.asksakis.massdroidv2.domain.repository.SmartListeningRepository
 import javax.inject.Inject
 
 private const val TAG = "NowPlayingVM"
-
 @HiltViewModel
 class NowPlayingViewModel @Inject constructor(
     private val playerRepository: PlayerRepository,
     private val musicRepository: MusicRepository,
-    private val smartListeningRepository: SmartListeningRepository
+    private val smartListeningRepository: SmartListeningRepository,
+    private val wsClient: MaWebSocketClient
 ) : ViewModel() {
 
     val selectedPlayer = playerRepository.selectedPlayer
@@ -47,6 +51,18 @@ class NowPlayingViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             smartListeningRepository.blockedArtistUris.collect { _blockedArtistUris.value = it }
+        }
+        viewModelScope.launch {
+            wsClient.events.collect { event ->
+                when (event.event) {
+                    EventType.MEDIA_ITEM_ADDED,
+                    EventType.MEDIA_ITEM_UPDATED,
+                    EventType.MEDIA_ITEM_DELETED -> {
+                        delay(300)
+                        _playlists.value = emptyList()
+                    }
+                }
+            }
         }
     }
 
@@ -200,6 +216,7 @@ class NowPlayingViewModel @Inject constructor(
             _isLoadingPlaylists.value = true
             try {
                 _playlists.value = musicRepository.getPlaylists(limit = 200)
+                    .filter { it.isEditable }
             } catch (e: Exception) {
                 Log.w(TAG, "loadPlaylists failed: ${e.message}")
                 _error.tryEmit("Failed to load playlists")
@@ -219,11 +236,29 @@ class NowPlayingViewModel @Inject constructor(
                 onDone()
             } catch (e: Exception) {
                 Log.w(TAG, "addCurrentTrackToPlaylist failed: ${e.message}")
-                _error.tryEmit("Failed to add track to playlist")
+                if (isPlaylistWriteUnsupported(e)) {
+                    _playlists.value = _playlists.value.filterNot { it.uri == playlist.uri }
+                    _error.tryEmit("This playlist is read-only")
+                } else {
+                    _error.tryEmit("Failed to add track to playlist")
+                }
             } finally {
                 _addingToPlaylistId.value = null
             }
         }
+    }
+
+    private fun isPlaylistWriteUnsupported(error: Exception): Boolean {
+        val message = error.message?.lowercase().orEmpty()
+        return error is MaApiException && (
+            message.contains("read-only") ||
+                message.contains("readonly") ||
+                message.contains("not supported") ||
+                message.contains("unsupported") ||
+                message.contains("cannot add") ||
+                message.contains("auto") ||
+                message.contains("generated")
+            )
     }
 
     private fun trackArtists(artistItemId: String?, artistUri: String?, artistNames: String): List<Pair<String, String>> {

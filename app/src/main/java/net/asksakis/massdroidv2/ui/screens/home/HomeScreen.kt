@@ -248,8 +248,8 @@ fun HomeScreen(
 
                 AnimatedVisibility(
                     visible = isRefreshing,
-                    enter = fadeIn(animationSpec = tween(durationMillis = 250)),
-                    exit = fadeOut(animationSpec = tween(durationMillis = 250)),
+                    enter = fadeIn(animationSpec = tween(durationMillis = 140)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 140)),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Box(

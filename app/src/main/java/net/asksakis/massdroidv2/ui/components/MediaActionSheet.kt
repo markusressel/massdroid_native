@@ -62,12 +62,16 @@ fun MediaActionSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState
+        sheetState = sheetState,
+        containerColor = SheetDefaults.containerColor()
     ) {
         Column(modifier = Modifier.padding(bottom = 32.dp)) {
             // Header
             Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.padding(
+                    horizontal = SheetDefaults.HeaderHorizontalPadding,
+                    vertical = SheetDefaults.HeaderVerticalPadding
+                ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 AsyncImage(
@@ -85,7 +89,7 @@ fun MediaActionSheet(
                 ) {
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleLarge,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -101,11 +105,12 @@ fun MediaActionSheet(
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
 
             // Favorite toggle
             if (onToggleFavorite != null) {
                 ListItem(
+                    colors = SheetDefaults.listItemColors(),
                     headlineContent = {
                         Text(if (favorite) "Remove from Favorites" else "Add to Favorites")
                     },
@@ -125,6 +130,7 @@ fun MediaActionSheet(
 
             if (onToggleArtistBlocked != null) {
                 ListItem(
+                    colors = SheetDefaults.listItemColors(),
                     headlineContent = {
                         Text(if (artistBlocked) "Allow this Artist" else "Do Not Play this Artist")
                     },
@@ -144,6 +150,7 @@ fun MediaActionSheet(
 
             extraActions.forEach { action ->
                 ListItem(
+                    colors = SheetDefaults.listItemColors(),
                     headlineContent = { Text(action.title) },
                     leadingContent = action.icon,
                     modifier = Modifier.clickable {
@@ -155,6 +162,7 @@ fun MediaActionSheet(
 
             // Play Now
             ListItem(
+                colors = SheetDefaults.listItemColors(),
                 headlineContent = { Text("Play Now") },
                 leadingContent = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
                 modifier = Modifier.clickable {
@@ -165,6 +173,7 @@ fun MediaActionSheet(
 
             // Play on Speaker
             ListItem(
+                colors = SheetDefaults.listItemColors(),
                 headlineContent = { Text("Play on Speaker") },
                 leadingContent = { Icon(Icons.Default.Speaker, contentDescription = null) },
                 trailingContent = {
@@ -180,6 +189,7 @@ fun MediaActionSheet(
                 Column {
                     players.filter { it.available }.sortedBy { it.displayName.lowercase() }.forEach { player ->
                         ListItem(
+                            colors = SheetDefaults.listItemColors(),
                             headlineContent = { Text(player.displayName) },
                             leadingContent = {
                                 Spacer(modifier = Modifier.width(24.dp))
@@ -206,6 +216,7 @@ fun MediaActionSheet(
 
             // Add to Queue
             ListItem(
+                colors = SheetDefaults.listItemColors(),
                 headlineContent = { Text("Add to Queue") },
                 leadingContent = {
                     @Suppress("DEPRECATION")
@@ -219,6 +230,7 @@ fun MediaActionSheet(
 
             // Start Radio
             ListItem(
+                colors = SheetDefaults.listItemColors(),
                 headlineContent = { Text("Start Radio") },
                 leadingContent = { Icon(Icons.Default.Radio, contentDescription = null) },
                 modifier = Modifier.clickable {

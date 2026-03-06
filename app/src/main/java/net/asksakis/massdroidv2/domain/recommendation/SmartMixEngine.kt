@@ -5,14 +5,12 @@ import net.asksakis.massdroidv2.domain.repository.ArtistScore
 import net.asksakis.massdroidv2.domain.repository.GenreScore
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.abs
 import kotlin.random.Random
 
 private const val TOP_ARTISTS_LIMIT = 12
 private const val TOP_GENRES_LIMIT = 4
 private const val ARTISTS_PER_GENRE = 6
 private const val MAX_TRACKS_PER_ARTIST = 2
-private const val MAX_TRACK_DECADE_GAP = 20
 private const val ARTIST_RANK_JITTER = 0.22
 private const val TRACK_RANK_JITTER = 0.28
 private const val FAVORITE_ARTIST_BONUS = 0.70
@@ -31,8 +29,6 @@ class SmartMixEngine @Inject constructor() {
         bllArtistScoreMap: Map<String, Double>,
         smartArtistScoreMap: Map<String, Double>,
         daypartAffinityByArtist: Map<String, Double>,
-        artistDominantDecades: Map<String, Int>,
-        focusDecade: Int?,
         randomSeed: Long = System.currentTimeMillis()
     ): List<String> {
         val random = Random(randomSeed)
@@ -65,9 +61,7 @@ class SmartMixEngine @Inject constructor() {
                         bllArtistScoreMap = bllArtistScoreMap,
                         smartArtistScoreMap = smartArtistScoreMap,
                         favoriteArtistUris = favoriteArtistUris,
-                        daypartAffinityByArtist = daypartAffinityByArtist,
-                        artistDominantDecades = artistDominantDecades,
-                        focusDecade = focusDecade
+                        daypartAffinityByArtist = daypartAffinityByArtist
                     )
                 }
                 .take(ARTISTS_PER_GENRE)
@@ -82,9 +76,7 @@ class SmartMixEngine @Inject constructor() {
                 bllArtistScoreMap = bllArtistScoreMap,
                 smartArtistScoreMap = smartArtistScoreMap,
                 favoriteArtistUris = favoriteArtistUris,
-                daypartAffinityByArtist = daypartAffinityByArtist,
-                artistDominantDecades = artistDominantDecades,
-                focusDecade = focusDecade
+                daypartAffinityByArtist = daypartAffinityByArtist
             ) + (jitter[uri] ?: 0.0)
         }
     }
@@ -96,7 +88,6 @@ class SmartMixEngine @Inject constructor() {
         excludedArtistUris: Set<String>,
         favoriteAlbumUris: Set<String>,
         artistBaseScore: (String) -> Double,
-        focusDecade: Int?,
         target: Int,
         randomSeed: Long = System.currentTimeMillis()
     ): List<String> {
@@ -120,10 +111,8 @@ class SmartMixEngine @Inject constructor() {
                         ?: candidateArtistKey(artistUri)
                     artistKey in excludedArtistUris
                 }
-                .filter { trackPassesDecadeFilter(it.year, focusDecade) }
                 .map { track ->
                     val genreAffinity = track.genres.sumOf { g -> genreScoreMap[g] ?: 0.0 } * 0.6
-                    val decadeBonus = trackDecadeBonus(track.year, focusDecade)
                     val favoriteBonus = if (track.favorite) 0.25 else 0.0
                     val trackAlbumKey = MediaIdentity.canonicalAlbumKey(track.albumItemId, track.albumUri)
                     val favoriteAlbumBonus =
@@ -132,7 +121,7 @@ class SmartMixEngine @Inject constructor() {
                     ScoredTrack(
                         track = track,
                         artistUri = artistUri,
-                        score = artistBaseScore(artistUri) + genreAffinity + decadeBonus + favoriteBonus +
+                        score = artistBaseScore(artistUri) + genreAffinity + favoriteBonus +
                             favoriteAlbumBonus +
                             random.nextDouble(-TRACK_RANK_JITTER, TRACK_RANK_JITTER)
                     )
@@ -169,16 +158,13 @@ class SmartMixEngine @Inject constructor() {
         bllArtistScoreMap: Map<String, Double>,
         smartArtistScoreMap: Map<String, Double>,
         favoriteArtistUris: Set<String>,
-        daypartAffinityByArtist: Map<String, Double>,
-        artistDominantDecades: Map<String, Int>,
-        focusDecade: Int?
+        daypartAffinityByArtist: Map<String, Double>
     ): Double {
         val artistScore = artistScoreMap[uri] ?: bllArtistScoreMap[uri] ?: 0.0
         val smart = (smartArtistScoreMap[uri] ?: 0.0) * 0.5
         val favoriteArtistBonus = if (uri in favoriteArtistUris) FAVORITE_ARTIST_BONUS else 0.0
         val daypart = daypartBonus(daypartAffinityByArtist[uri])
-        val decade = decadeAdjustment(artistDominantDecades[uri], focusDecade)
-        return artistScore + smart + favoriteArtistBonus + daypart + decade
+        return artistScore + smart + favoriteArtistBonus + daypart
     }
 
     private fun daypartBonus(affinity: Double?): Double {
@@ -186,37 +172,8 @@ class SmartMixEngine @Inject constructor() {
         return ((affinity - 0.45) * 0.9).coerceIn(-0.30, 0.45)
     }
 
-    private fun decadeAdjustment(decade: Int?, focusDecade: Int?): Double {
-        if (decade == null || focusDecade == null) return 0.0
-        val gap = abs(decade - focusDecade)
-        return when {
-            gap == 0 -> 1.0
-            gap <= 10 -> 0.35
-            gap >= 20 -> -1.0
-            else -> -0.25
-        }
-    }
-
-    private fun trackPassesDecadeFilter(year: Int?, focusDecade: Int?): Boolean {
-        if (year == null || focusDecade == null) return true
-        val decade = (year / 10) * 10
-        return abs(decade - focusDecade) <= MAX_TRACK_DECADE_GAP
-    }
-
     private fun candidateArtistKey(artistUri: String): String =
         MediaIdentity.canonicalArtistKey(uri = artistUri) ?: artistUri
-
-    private fun trackDecadeBonus(year: Int?, focusDecade: Int?): Double {
-        if (year == null || focusDecade == null) return 0.0
-        val decade = (year / 10) * 10
-        val gap = abs(decade - focusDecade)
-        return when {
-            gap == 0 -> 0.35
-            gap <= 10 -> 0.15
-            gap <= MAX_TRACK_DECADE_GAP -> -0.10
-            else -> -0.45
-        }
-    }
 
     private fun interleaveByArtist(
         scoredTracks: List<ScoredTrack>,
@@ -228,31 +185,20 @@ class SmartMixEngine @Inject constructor() {
             .groupBy { it.artistUri }
             .mapValues { (_, list) -> ArrayDeque(list) }
             .toMutableMap()
-        val keys = buckets.keys.shuffled(random).toMutableList()
         val result = mutableListOf<Track>()
+        var lastArtistUri: String? = null
 
-        while (keys.isNotEmpty() && result.size < limit) {
-            if (keys.size > 1) {
-                val rotate = random.nextInt(keys.size)
-                repeat(rotate) {
-                    val first = keys.removeFirst()
-                    keys.add(first)
-                }
+        while (buckets.isNotEmpty() && result.size < limit) {
+            val candidateKeys = buckets.keys.shuffled(random)
+            val preferredKey = candidateKeys.firstOrNull { it != lastArtistUri } ?: candidateKeys.firstOrNull()
+            val queue = preferredKey?.let { buckets[it] } ?: break
+            val next = queue.removeFirstOrNull()
+            if (next != null) {
+                result += next.track
+                lastArtistUri = preferredKey
             }
-            val iterator = keys.iterator()
-            while (iterator.hasNext() && result.size < limit) {
-                val key = iterator.next()
-                val queue = buckets[key]
-                if (queue == null) {
-                    iterator.remove()
-                    continue
-                }
-                val next = queue.removeFirstOrNull()
-                if (next != null) result += next.track
-                if (queue.isEmpty()) {
-                    iterator.remove()
-                    buckets.remove(key)
-                }
+            if (queue.isEmpty()) {
+                buckets.remove(preferredKey)
             }
         }
         return result

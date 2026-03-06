@@ -13,12 +13,23 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Laptop
+import androidx.compose.material.icons.filled.Monitor
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.SpeakerGroup
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -46,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,7 +65,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import net.asksakis.massdroidv2.domain.model.QueueItem
+import net.asksakis.massdroidv2.domain.model.Player
+import net.asksakis.massdroidv2.domain.model.PlayerType
 import net.asksakis.massdroidv2.ui.components.MediaItemRow
+import net.asksakis.massdroidv2.ui.components.SheetDefaults
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -107,7 +122,16 @@ fun QueueScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Queue") },
+                title = {
+                    Column {
+                        Text("Queue")
+                        Text(
+                            text = "${items.size} tracks",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -222,10 +246,16 @@ fun QueueScreen(
     }
 
     actionSheetItem?.let { item ->
-        ModalBottomSheet(onDismissRequest = { actionSheetItem = null }) {
-            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+        ModalBottomSheet(
+            onDismissRequest = { actionSheetItem = null },
+            containerColor = SheetDefaults.containerColor()
+        ) {
+            Column(modifier = Modifier.padding(bottom = 24.dp)) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(
+                        horizontal = SheetDefaults.HeaderHorizontalPadding,
+                        vertical = SheetDefaults.HeaderVerticalPadding
+                    ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     AsyncImage(
@@ -243,7 +273,7 @@ fun QueueScreen(
                     ) {
                         Text(
                             text = item.name,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -259,9 +289,10 @@ fun QueueScreen(
                     }
                 }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
 
                 ListItem(
+                    colors = SheetDefaults.listItemColors(),
                     headlineContent = { Text("Play Now") },
                     leadingContent = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
                     modifier = Modifier.clickable {
@@ -272,6 +303,7 @@ fun QueueScreen(
 
                 if (item.index > 1) {
                     ListItem(
+                        colors = SheetDefaults.listItemColors(),
                         headlineContent = { Text("Play Next") },
                         leadingContent = { Icon(Icons.Default.SkipNext, contentDescription = null) },
                         modifier = Modifier.clickable {
@@ -283,6 +315,7 @@ fun QueueScreen(
 
                 if (item.index > 0) {
                     ListItem(
+                        colors = SheetDefaults.listItemColors(),
                         headlineContent = { Text("Move Up") },
                         leadingContent = { Icon(Icons.Default.ArrowUpward, contentDescription = null) },
                         modifier = Modifier.clickable {
@@ -294,6 +327,7 @@ fun QueueScreen(
 
                 if (item.index < items.size - 1) {
                     ListItem(
+                        colors = SheetDefaults.listItemColors(),
                         headlineContent = { Text("Move Down") },
                         leadingContent = { Icon(Icons.Default.ArrowDownward, contentDescription = null) },
                         modifier = Modifier.clickable {
@@ -304,6 +338,7 @@ fun QueueScreen(
                 }
 
                 ListItem(
+                    colors = SheetDefaults.listItemColors(),
                     headlineContent = { Text("Remove") },
                     leadingContent = {
                         Icon(
@@ -325,16 +360,32 @@ fun QueueScreen(
         val otherPlayers = players.filter { it.available && it.playerId != viewModel.selectedPlayerId }
             .sortedBy { it.displayName.lowercase() }
 
-        ModalBottomSheet(onDismissRequest = { showQueueMenu = false }) {
+        ModalBottomSheet(
+            onDismissRequest = { showQueueMenu = false },
+            containerColor = SheetDefaults.containerColor()
+        ) {
             Column(modifier = Modifier.padding(bottom = 24.dp)) {
-                Text(
-                    text = "Transfer queue to:",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
+                Column {
+                    SheetDefaults.HeaderTitle(
+                        text = "Transfer Queue To",
+                        modifier = Modifier.padding(
+                            horizontal = SheetDefaults.HeaderHorizontalPadding,
+                            vertical = SheetDefaults.HeaderVerticalPadding
+                        )
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(top = 6.dp, bottom = 4.dp))
+                }
                 otherPlayers.forEach { target ->
                     ListItem(
+                        colors = SheetDefaults.listItemColors(),
                         headlineContent = { Text(target.displayName) },
+                        leadingContent = {
+                            Icon(
+                                imageVector = queueTransferIcon(target),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
                         modifier = Modifier.clickable {
                             viewModel.transferQueue(target.playerId)
                             showQueueMenu = false
@@ -342,6 +393,29 @@ fun QueueScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+private fun queueTransferIcon(player: Player): ImageVector {
+    val normalized = player.icon?.replace(":", "-")?.lowercase()
+    return when {
+        normalized == "mdi-speaker-group" || normalized == "mdi-speaker-multiple" -> Icons.Default.SpeakerGroup
+        normalized == "mdi-speaker" -> Icons.Default.Speaker
+        normalized == "mdi-cast" -> Icons.Default.Cast
+        normalized == "mdi-cast-connected" -> Icons.Default.CastConnected
+        normalized == "mdi-television" || normalized == "mdi-tv" -> Icons.Default.Tv
+        normalized == "mdi-cellphone" || normalized == "mdi-phone" || normalized == "mdi-cellphone-sound" -> Icons.Default.PhoneAndroid
+        normalized == "mdi-laptop" -> Icons.Default.Laptop
+        normalized == "mdi-radio" -> Icons.Default.Radio
+        normalized == "mdi-headphones" -> Icons.Default.Headphones
+        normalized == "mdi-bluetooth" || normalized == "mdi-bluetooth-audio" -> Icons.Default.Headphones
+        normalized == "mdi-music" || normalized == "mdi-music-note" -> Icons.Default.MusicNote
+        normalized == "mdi-monitor" -> Icons.Default.Monitor
+        else -> when (player.type) {
+            PlayerType.GROUP -> Icons.Default.SpeakerGroup
+            PlayerType.STEREO_PAIR -> Icons.Default.Speaker
+            PlayerType.PLAYER -> Icons.Default.Speaker
         }
     }
 }

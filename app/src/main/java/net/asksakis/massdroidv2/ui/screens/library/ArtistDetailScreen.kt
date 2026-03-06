@@ -28,9 +28,10 @@ import net.asksakis.massdroidv2.domain.model.Album
 import net.asksakis.massdroidv2.domain.model.MediaType
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
 import net.asksakis.massdroidv2.ui.components.ActionSheetItem
-import net.asksakis.massdroidv2.ui.components.formatAlbumTypeYear
 import net.asksakis.massdroidv2.ui.components.MediaActionSheet
 import net.asksakis.massdroidv2.ui.components.MediaItemRow
+import net.asksakis.massdroidv2.ui.components.SheetDefaults
+import net.asksakis.massdroidv2.ui.components.formatAlbumTypeYear
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -223,9 +224,13 @@ fun ArtistDetailScreen(
                         }
                     }
                     if (showPlaySheet) {
-                        ModalBottomSheet(onDismissRequest = { showPlaySheet = false }) {
+                        ModalBottomSheet(
+                            onDismissRequest = { showPlaySheet = false },
+                            containerColor = SheetDefaults.containerColor()
+                        ) {
                             Column(modifier = Modifier.padding(bottom = 32.dp)) {
                                 ListItem(
+                                    colors = SheetDefaults.listItemColors(),
                                     headlineContent = { Text("Add to Queue") },
                                     modifier = Modifier.clickable {
                                         viewModel.playAllTracks(option = "add")
@@ -233,6 +238,7 @@ fun ArtistDetailScreen(
                                     }
                                 )
                                 ListItem(
+                                    colors = SheetDefaults.listItemColors(),
                                     headlineContent = { Text("Play Next") },
                                     modifier = Modifier.clickable {
                                         viewModel.playAllTracks(option = "next")

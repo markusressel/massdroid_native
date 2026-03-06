@@ -23,18 +23,28 @@ fun PlayerSelector(
     onPlayerSelected: (Player) -> Unit,
     onDismiss: () -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Text(
-            text = "Select Player",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
-        )
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SheetDefaults.containerColor()
+    ) {
+        Column {
+            Text(
+                text = "Select Player",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(
+                    horizontal = SheetDefaults.HeaderHorizontalPadding,
+                    vertical = SheetDefaults.HeaderVerticalPadding
+                )
+            )
+            HorizontalDivider(modifier = Modifier.padding(top = 6.dp, bottom = 4.dp))
+        }
 
         LazyColumn(
-            modifier = Modifier.padding(bottom = 32.dp)
+            modifier = Modifier.padding(bottom = 24.dp)
         ) {
             items(players.filter { it.available }.sortedBy { it.displayName.lowercase() }) { player ->
                 ListItem(
+                    colors = SheetDefaults.listItemColors(),
                     headlineContent = { Text(player.displayName) },
                     supportingContent = {
                         Text(

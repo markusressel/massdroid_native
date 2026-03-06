@@ -61,7 +61,8 @@ data class Playlist(
     val name: String,
     val uri: String,
     val imageUrl: String? = null,
-    val favorite: Boolean = false
+    val favorite: Boolean = false,
+    val isEditable: Boolean = true
 )
 
 enum class MediaType(val apiValue: String) {

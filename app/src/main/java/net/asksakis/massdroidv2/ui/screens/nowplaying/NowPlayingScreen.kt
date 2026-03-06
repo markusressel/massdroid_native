@@ -52,6 +52,7 @@ import net.asksakis.massdroidv2.domain.model.PlaybackState
 import net.asksakis.massdroidv2.domain.model.Playlist
 import net.asksakis.massdroidv2.domain.model.RepeatMode
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
+import net.asksakis.massdroidv2.ui.components.SheetDefaults
 import net.asksakis.massdroidv2.ui.components.VolumeSlider
 import kotlin.math.max
 
@@ -102,7 +103,7 @@ fun NowPlayingScreen(
     val dominantColor by extractDominantColor(imageUrl, isDark)
     val animatedColor by animateColorAsState(
         targetValue = dominantColor,
-        animationSpec = tween(durationMillis = 800),
+        animationSpec = tween(durationMillis = 320),
         label = "bg_color"
     )
     val gradientAlpha = if (isDark) 0.35f else 0.25f
@@ -127,30 +128,8 @@ fun NowPlayingScreen(
                             @Suppress("DEPRECATION")
                             Icon(Icons.Default.QueueMusic, contentDescription = "Queue")
                         }
-                        Box {
-                            IconButton(onClick = { showPlayerMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "Player options")
-                            }
-                            DropdownMenu(
-                                expanded = showPlayerMenu,
-                                onDismissRequest = { showPlayerMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            if (artistBlocked) "Allow this Artist"
-                                            else "Do Not Play this Artist"
-                                        )
-                                    },
-                                    onClick = {
-                                        showPlayerMenu = false
-                                        if (canToggleArtistBlock) {
-                                            viewModel.toggleCurrentArtistBlocked()
-                                        }
-                                    },
-                                    enabled = canToggleArtistBlock
-                                )
-                            }
+                        IconButton(onClick = { showPlayerMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Player options")
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -186,7 +165,7 @@ fun NowPlayingScreen(
                     onNavigateToQueue = onNavigateToQueue,
                     onShowPlaylistDialog = {
                         showPlaylistDialog = true
-                        viewModel.loadPlaylists()
+                        viewModel.loadPlaylists(force = true)
                     },
                     onNavigateToArtist = onNavigateToArtist,
                     onNavigateToAlbum = onNavigateToAlbum
@@ -207,7 +186,7 @@ fun NowPlayingScreen(
                     viewModel = viewModel,
                     onShowPlaylistDialog = {
                         showPlaylistDialog = true
-                        viewModel.loadPlaylists()
+                        viewModel.loadPlaylists(force = true)
                     },
                     onNavigateToArtist = onNavigateToArtist,
                     onNavigateToAlbum = onNavigateToAlbum
@@ -227,6 +206,18 @@ fun NowPlayingScreen(
                 viewModel.addCurrentTrackToPlaylist(playlist) {
                     showPlaylistDialog = false
                 }
+            }
+        )
+    }
+
+    if (showPlayerMenu) {
+        PlayerOptionsSheet(
+            artistBlocked = artistBlocked,
+            canToggleArtistBlock = canToggleArtistBlock,
+            onDismiss = { showPlayerMenu = false },
+            onClick = {
+                showPlayerMenu = false
+                viewModel.toggleCurrentArtistBlocked()
             }
         )
     }
@@ -384,30 +375,8 @@ private fun NowPlayingLandscape(
                         @Suppress("DEPRECATION")
                         Icon(Icons.Default.QueueMusic, contentDescription = "Queue", modifier = Modifier.size(20.dp))
                     }
-                    Box {
-                        IconButton(onClick = { showPlayerMenu = true }, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Player options", modifier = Modifier.size(20.dp))
-                        }
-                        DropdownMenu(
-                            expanded = showPlayerMenu,
-                            onDismissRequest = { showPlayerMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (artistBlocked) "Allow this Artist"
-                                        else "Do Not Play this Artist"
-                                    )
-                                },
-                                onClick = {
-                                    showPlayerMenu = false
-                                    if (canToggleArtistBlock) {
-                                        viewModel.toggleCurrentArtistBlocked()
-                                    }
-                                },
-                                enabled = canToggleArtistBlock
-                            )
-                        }
+                    IconButton(onClick = { showPlayerMenu = true }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Player options", modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -450,6 +419,65 @@ private fun NowPlayingLandscape(
                 isMuted = player?.volumeMuted ?: false,
                 onVolumeChange = { viewModel.setVolume(it) },
                 onMuteToggle = { viewModel.toggleMute() }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerOptionsSheet(
+    artistBlocked: Boolean,
+    canToggleArtistBlock: Boolean,
+    onDismiss: () -> Unit,
+    onClick: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SheetDefaults.containerColor()
+    ) {
+        Column(modifier = Modifier.padding(bottom = 24.dp)) {
+            Column {
+                SheetDefaults.HeaderTitle(
+                    text = "Player Options",
+                    modifier = Modifier.padding(
+                        horizontal = SheetDefaults.HeaderHorizontalPadding,
+                        vertical = SheetDefaults.HeaderVerticalPadding
+                    )
+                )
+                HorizontalDivider(modifier = Modifier.padding(top = 6.dp, bottom = 4.dp))
+            }
+            ListItem(
+                colors = SheetDefaults.listItemColors(),
+                headlineContent = {
+                    Text(
+                        if (artistBlocked) "Allow Artist Again" else "Block This Artist",
+                        color = if (artistBlocked) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        }
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        if (artistBlocked) "Artist can appear again in queue and recommendations"
+                        else "Hide this artist from queue and smart listening",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                leadingContent = {
+                    Icon(
+                        imageVector = if (artistBlocked) Icons.Default.PersonAdd else Icons.Default.Block,
+                        contentDescription = null,
+                        tint = if (artistBlocked) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        }
+                    )
+                },
+                modifier = Modifier.clickable(enabled = canToggleArtistBlock, onClick = onClick)
             )
         }
     }
@@ -591,6 +619,15 @@ private fun AddToPlaylistDialog(
                                         .padding(horizontal = 16.dp, vertical = 14.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    AsyncImage(
+                                        model = playlist.imageUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(MaterialTheme.shapes.small),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
                                     Text(
                                         text = playlist.name,
                                         modifier = Modifier.weight(1f),

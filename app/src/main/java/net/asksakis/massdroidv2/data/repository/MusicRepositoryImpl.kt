@@ -139,19 +139,31 @@ class MusicRepositoryImpl @Inject constructor(
         return items.map { it.toDomain() }
     }
 
-    override suspend fun playMedia(queueId: String, uri: String, option: String?, radioMode: Boolean) {
+    override suspend fun playMedia(
+        queueId: String,
+        uri: String,
+        option: String?,
+        radioMode: Boolean,
+        awaitResponse: Boolean
+    ) {
         wsClient.sendCommand(
             MaCommands.PlayerQueues.PLAY_MEDIA,
             PlayMediaArgs(queueId = queueId, mediaUris = listOf(uri), option = option, radioMode = radioMode),
-            awaitResponse = false
+            awaitResponse = awaitResponse
         )
     }
 
-    override suspend fun playMedia(queueId: String, uris: List<String>, option: String?, radioMode: Boolean) {
+    override suspend fun playMedia(
+        queueId: String,
+        uris: List<String>,
+        option: String?,
+        radioMode: Boolean,
+        awaitResponse: Boolean
+    ) {
         wsClient.sendCommand(
             MaCommands.PlayerQueues.PLAY_MEDIA,
             PlayMediaArgs(queueId = queueId, mediaUris = uris, option = option, radioMode = radioMode),
-            awaitResponse = false
+            awaitResponse = awaitResponse
         )
     }
 
@@ -459,7 +471,8 @@ class MusicRepositoryImpl @Inject constructor(
             name = name,
             uri = uri,
             imageUrl = resolveImageUrl(wsClient),
-            favorite = favorite
+            favorite = favorite,
+            isEditable = isEditable != false
         )
     }
 

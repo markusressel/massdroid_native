@@ -54,6 +54,8 @@ private const val RECENTLY_ADDED_TRACKS_TITLE = "Recently Added Tracks"
 private const val RECENT_TRACKS_QUERY_FACTOR = 5
 private const val BLL_ARTIST_SCORE_LIMIT = 500
 private const val MAX_GENRE_RADIO_ARTIST_URIS = 30
+private const val GENRE_RADIO_ATTEMPT_POOL_SIZE = 12
+private val GENRE_RADIO_BATCH_SIZES = listOf(8, 4, 2, 1)
 private const val GENRE_RADIO_EXPLORATION_COUNT = 4
 private const val GENRE_RADIO_ALLOWED_DECADE_GAP = 10
 private const val GENRE_RADIO_DECADE_LOOKBACK_DAYS = 720
@@ -505,20 +507,6 @@ class DiscoverViewModel @Inject constructor(
         val favoriteArtistUris = loadSmartMixFavoriteArtistUris()
         val favoriteAlbumUris = loadSmartMixFavoriteAlbumUris()
 
-        val topGenres = genreScores.take(4).map { it.genre }
-        val fallbackCandidateUris = buildList {
-            addAll(artistScores.map { it.artistUri })
-            addAll(favoriteArtistUris)
-        }.distinct().filterNot { it in excludedArtistUris }
-        val focusDecade = if (topGenres.isNotEmpty()) {
-            loadGenreRadioFocusDecade(
-                genre = topGenres.first(),
-                candidateUris = fallbackCandidateUris
-            )
-        } else {
-            null
-        }
-
         val mixGenreArtists = genreArtists.mapValues { (_, uris) ->
             uris.mapNotNull { artistKeyFromUri(it) }.distinct()
         }
@@ -531,8 +519,6 @@ class DiscoverViewModel @Inject constructor(
             bllArtistScoreMap = bllArtistScoreMap,
             smartArtistScoreMap = smartArtistScoreMap,
             daypartAffinityByArtist = daypartAffinity,
-            artistDominantDecades = artistDominantDecades,
-            focusDecade = focusDecade,
             randomSeed = mixSeed
         )
         if (artistOrder.isEmpty()) return emptyList()
@@ -556,7 +542,6 @@ class DiscoverViewModel @Inject constructor(
                     (smartArtistScoreMap[key] ?: 0.0) * 0.5 +
                     daypartTrackBias(daypartAffinity[key])
             },
-            focusDecade = focusDecade,
             target = SMART_MIX_TRACK_TARGET,
             randomSeed = mixSeed + 17L
         )
@@ -1072,7 +1057,15 @@ class DiscoverViewModel @Inject constructor(
                         "sending ${payloadUris.size}/${candidateUris.size} artist URIs"
                 )
                 _radioOverlayGenre.value = genre
-                musicRepository.playMedia(queueId, payloadUris, radioMode = true)
+                val requestAccepted = startGenreRadioWithFallback(
+                    queueId = queueId,
+                    genre = genre,
+                    rankedUris = payloadUris
+                )
+                if (!requestAccepted) {
+                    Log.w(TAG, "startGenreRadio: all seed attempts failed for genre='$genre'")
+                    return@launch
+                }
                 val started = waitForGenreRadioStart(
                     wasPlayingBefore = wasPlayingBefore,
                     baselineTrackUri = baselineTrackUri
@@ -1088,6 +1081,48 @@ class DiscoverViewModel @Inject constructor(
                 radioStartJob = null
             }
         }
+    }
+
+    private suspend fun startGenreRadioWithFallback(
+        queueId: String,
+        genre: String,
+        rankedUris: List<String>
+    ): Boolean {
+        val seedPool = rankedUris.take(GENRE_RADIO_ATTEMPT_POOL_SIZE)
+        if (seedPool.isEmpty()) return false
+
+        for (batchSize in GENRE_RADIO_BATCH_SIZES) {
+            val batches = seedPool.chunked(batchSize)
+            for ((index, batch) in batches.withIndex()) {
+                try {
+                    Log.d(
+                        TAG,
+                        "startGenreRadio attempt: genre='$genre', batchSize=${batch.size}, " +
+                            "batch=${index + 1}/${batches.size}, seeds=${batch.joinToString()}"
+                    )
+                    musicRepository.playMedia(
+                        queueId = queueId,
+                        uris = batch,
+                        radioMode = true,
+                        awaitResponse = true
+                    )
+                    return true
+                } catch (e: MaApiException) {
+                    if (!isRetryableGenreRadioMetadataError(e)) throw e
+                    Log.w(
+                        TAG,
+                        "startGenreRadio attempt failed: genre='$genre', batchSize=${batch.size}, " +
+                            "seeds=${batch.joinToString()} error=${e.message}"
+                    )
+                }
+            }
+        }
+        return false
+    }
+
+    private fun isRetryableGenreRadioMetadataError(error: MaApiException): Boolean {
+        val msg = error.message?.lowercase().orEmpty()
+        return error.code == 999 && "year 0 is out of range" in msg
     }
 
     private suspend fun ensureBllArtistScoresLoaded() {

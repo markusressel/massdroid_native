@@ -24,6 +24,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import net.asksakis.massdroidv2.data.websocket.ConnectionState
 import net.asksakis.massdroidv2.ui.components.EqualizerBars
+import net.asksakis.massdroidv2.ui.components.SheetDefaults
 import net.asksakis.massdroidv2.domain.model.CrossfadeMode
 import net.asksakis.massdroidv2.domain.model.PlaybackState
 import net.asksakis.massdroidv2.domain.model.Player
@@ -331,16 +332,23 @@ private fun PlayerQueueSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState
+        sheetState = sheetState,
+        containerColor = SheetDefaults.containerColor()
     ) {
         Column(modifier = Modifier.padding(bottom = 24.dp)) {
-            Text(
-                text = player.displayName,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+            Column {
+                SheetDefaults.HeaderTitle(
+                    text = player.displayName,
+                    modifier = Modifier.padding(
+                        horizontal = SheetDefaults.HeaderHorizontalPadding,
+                        vertical = SheetDefaults.HeaderVerticalPadding
+                    )
+                )
+                HorizontalDivider(modifier = Modifier.padding(top = 6.dp, bottom = 4.dp))
+            }
             if (!showTransferList) {
                 ListItem(
+                    colors = SheetDefaults.listItemColors(),
                     headlineContent = { Text("Clear Queue") },
                     leadingContent = {
                         Icon(Icons.Default.DeleteSweep, contentDescription = null)
@@ -349,6 +357,7 @@ private fun PlayerQueueSheet(
                 )
                 if (otherPlayers.isNotEmpty()) {
                     ListItem(
+                        colors = SheetDefaults.listItemColors(),
                         headlineContent = { Text("Transfer Queue") },
                         leadingContent = {
                             Icon(Icons.Default.SwapHoriz, contentDescription = null)
@@ -361,6 +370,7 @@ private fun PlayerQueueSheet(
                 }
             } else {
                 ListItem(
+                    colors = SheetDefaults.listItemColors(),
                     headlineContent = {
                         Text("Transfer queue to:", style = MaterialTheme.typography.labelMedium)
                     },
@@ -372,6 +382,7 @@ private fun PlayerQueueSheet(
                 )
                 otherPlayers.forEach { target ->
                     ListItem(
+                        colors = SheetDefaults.listItemColors(),
                         headlineContent = { Text(target.displayName) },
                         leadingContent = {
                             PlayerIcon(
