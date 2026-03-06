@@ -419,31 +419,21 @@ class DiscoverViewModel @Inject constructor(
 
             val samples = mutableListOf<Long>()
             var failed = 0
-            var probeCommand = "ping"
-            var probeMethod = "WS ping"
+            val probeCommand = "players/all"
+            val probeMethod = "WS RPC"
             repeat(sampleCount.coerceAtLeast(1)) { index ->
                 if (index > 0) delay(140)
-                var sampleDone = false
-                while (!sampleDone) {
-                    val startNs = System.nanoTime()
-                    try {
-                        wsClient.sendCommand(
-                            command = probeCommand,
-                            awaitResponse = true,
-                            timeoutMs = CONNECTION_PING_TIMEOUT_MS
-                        )
-                        samples += ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(0L)
-                        sampleDone = true
-                    } catch (e: Exception) {
-                        if (probeCommand == "ping" && isUnsupportedPingCommand(e)) {
-                            probeCommand = "players/all"
-                            probeMethod = "WS RPC"
-                            continue
-                        }
-                        failed++
-                        sampleDone = true
-                        Log.w(TAG, "probeConnection ping failed: ${e.message}")
-                    }
+                val startNs = System.nanoTime()
+                try {
+                    wsClient.sendCommand(
+                        command = probeCommand,
+                        awaitResponse = true,
+                        timeoutMs = CONNECTION_PING_TIMEOUT_MS
+                    )
+                    samples += ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(0L)
+                } catch (e: Exception) {
+                    failed++
+                    Log.w(TAG, "probeConnection failed: ${e.message}")
                 }
             }
 
@@ -456,16 +446,6 @@ class DiscoverViewModel @Inject constructor(
                 updatedAtMs = System.currentTimeMillis()
             )
         }
-    }
-
-    private fun isUnsupportedPingCommand(error: Exception): Boolean {
-        if (error !is MaApiException) return false
-        if (error.code in listOf(400, 404, -32601)) return true
-        val msg = error.message?.lowercase().orEmpty()
-        return msg.contains("unknown") ||
-            msg.contains("not found") ||
-            msg.contains("invalid command") ||
-            msg.contains("unsupported")
     }
 
     private suspend fun refreshSmartFiltersForMix() {
