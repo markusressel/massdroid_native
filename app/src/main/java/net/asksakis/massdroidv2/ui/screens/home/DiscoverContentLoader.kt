@@ -22,7 +22,8 @@ data class DiscoverContentBundle(
     val enrichedFolders: List<RecommendationFolder>,
     val recommendationAlbums: List<Album>,
     val genreItems: List<GenreItem>,
-    val genreArtists: Map<String, List<String>>
+    val genreArtists: Map<String, List<String>>,
+    val strictGenreArtists: Map<String, List<String>>
 )
 
 class DiscoverContentLoader(
@@ -69,7 +70,7 @@ class DiscoverContentLoader(
         } catch (_: Exception) {
             emptyMap()
         }
-        val (genreItems, genreArtists) = buildGenreData(filteredArtists, historyGenreArtists, artistByUri)
+        val (genreItems, genreArtists, strictGenreArtists) = buildGenreData(filteredArtists, historyGenreArtists, artistByUri)
 
         Log.d(LOADER_TAG, "Merged ${mergedArtists.size} artists, ${serverFolders.size} server folders")
 
@@ -78,7 +79,8 @@ class DiscoverContentLoader(
             enrichedFolders = enrichedFolders,
             recommendationAlbums = recommendationAlbums,
             genreItems = genreItems,
-            genreArtists = genreArtists
+            genreArtists = genreArtists,
+            strictGenreArtists = strictGenreArtists
         )
     }
 
@@ -154,22 +156,22 @@ class DiscoverContentLoader(
         artists: List<Artist>,
         historyGenreArtists: Map<String, List<String>>,
         artistByUri: Map<String, Artist>
-    ): Pair<List<GenreItem>, Map<String, List<String>>> {
+    ): Triple<List<GenreItem>, Map<String, List<String>>, Map<String, List<String>>> {
         val genreMap = mutableMapOf<String, MutableList<Artist>>()
         for (artist in artists) {
             for (genre in artist.genres) {
-                genreMap.getOrPut(genre) { mutableListOf() }.add(artist)
+                genreMap.getOrPut(genre.lowercase()) { mutableListOf() }.add(artist)
             }
         }
 
-        val serverUris = genreMap.mapValues { (_, artistList) ->
+        val strictGenreArtists = genreMap.mapValues { (_, artistList) ->
             artistList.map { it.uri }
         }
         val genreArtists = buildMap {
-            val allGenres = serverUris.keys + historyGenreArtists.keys
+            val allGenres = strictGenreArtists.keys + historyGenreArtists.keys
             for (genre in allGenres) {
                 val merged = buildList {
-                    addAll(serverUris[genre].orEmpty())
+                    addAll(strictGenreArtists[genre].orEmpty())
                     addAll(
                         historyGenreArtists[genre]
                             .orEmpty()
@@ -180,18 +182,19 @@ class DiscoverContentLoader(
             }
         }
 
-        val genreItems = genreMap
-            .map { (name, artistList) ->
+        val genreItems = genreArtists
+            .filter { (_, uris) -> uris.isNotEmpty() }
+            .map { (name, uris) ->
                 GenreItem(
                     name = name,
-                    count = artistList.size,
-                    imageUrl = artistList.firstOrNull()?.imageUrl
+                    count = uris.size,
+                    imageUrl = genreMap[name]?.firstOrNull()?.imageUrl
+                        ?: uris.firstNotNullOfOrNull { artistByUri[it]?.imageUrl }
                 )
             }
             .sortedByDescending { it.count }
-            .take(10)
 
-        return genreItems to genreArtists
+        return Triple(genreItems, genreArtists, strictGenreArtists)
     }
 
     private fun artistKey(artist: Artist): String? =

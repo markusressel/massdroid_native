@@ -7,6 +7,7 @@ import net.asksakis.massdroidv2.data.database.GenreEntity
 import net.asksakis.massdroidv2.data.database.PlayHistoryDao
 import net.asksakis.massdroidv2.data.database.PlayHistoryEntity
 import net.asksakis.massdroidv2.data.database.TrackArtistEntity
+import net.asksakis.massdroidv2.data.database.ArtistGenreEntity
 import net.asksakis.massdroidv2.data.database.TrackEntity
 import net.asksakis.massdroidv2.data.database.TrackGenreEntity
 import net.asksakis.massdroidv2.domain.model.Track
@@ -94,9 +95,13 @@ class PlayHistoryRepositoryImpl @Inject constructor(
         }
 
         for (genre in track.genres) {
-            if (genre.isNotBlank()) {
-                dao.insertGenre(GenreEntity(name = genre))
-                dao.insertTrackGenre(TrackGenreEntity(trackUri = trackKey, genreName = genre))
+            val normalized = genre.lowercase().trim()
+            if (normalized.isNotBlank()) {
+                dao.insertGenre(GenreEntity(name = normalized))
+                dao.insertTrackGenre(TrackGenreEntity(trackUri = trackKey, genreName = normalized))
+                for ((artistKey, _) in artistsToPersist) {
+                    dao.insertArtistGenre(ArtistGenreEntity(artistUri = artistKey, genreName = normalized))
+                }
             }
         }
 
@@ -275,6 +280,7 @@ class PlayHistoryRepositoryImpl @Inject constructor(
         dao.deleteOrphanTracks()
         dao.deleteOrphanAlbums()
         dao.deleteOrphanArtists()
+        dao.deleteOrphanArtistGenres()
         dao.deleteOrphanGenres()
         Log.d(TAG, "Cleaned up play history older than $retentionMonths months + orphans")
     }

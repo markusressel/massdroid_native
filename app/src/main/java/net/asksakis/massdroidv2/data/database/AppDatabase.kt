@@ -13,9 +13,12 @@ import androidx.room.RoomDatabase
         TrackGenreEntity::class,
         PlayHistoryEntity::class,
         SmartFeedbackEntity::class,
-        BlockedArtistEntity::class
+        BlockedArtistEntity::class,
+        ArtistGenreEntity::class,
+        LastFmArtistTagsEntity::class,
+        LastFmSimilarArtistEntity::class
     ],
-    version = 3,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

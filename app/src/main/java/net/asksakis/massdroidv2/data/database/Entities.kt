@@ -137,6 +137,38 @@ data class SmartFeedbackEntity(
 )
 
 @Entity(
+    tableName = "artist_genres",
+    primaryKeys = ["artist_uri", "genre_name"],
+    foreignKeys = [
+        ForeignKey(
+            entity = ArtistEntity::class,
+            parentColumns = ["uri"],
+            childColumns = ["artist_uri"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = GenreEntity::class,
+            parentColumns = ["name"],
+            childColumns = ["genre_name"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("genre_name")]
+)
+data class ArtistGenreEntity(
+    @ColumnInfo(name = "artist_uri") val artistUri: String,
+    @ColumnInfo(name = "genre_name") val genreName: String
+)
+
+@Entity(tableName = "lastfm_artist_tags")
+data class LastFmArtistTagsEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "artist_name") val artistName: String,
+    val tags: String,
+    @ColumnInfo(name = "fetched_at") val fetchedAt: Long
+)
+
+@Entity(
     tableName = "blocked_artists",
     foreignKeys = [
         ForeignKey(
@@ -154,4 +186,15 @@ data class BlockedArtistEntity(
     val artistUri: String,
     @ColumnInfo(name = "artist_name") val artistName: String? = null,
     @ColumnInfo(name = "blocked_at") val blockedAt: Long
+)
+
+@Entity(
+    tableName = "lastfm_similar_artists",
+    primaryKeys = ["source_artist", "similar_artist"]
+)
+data class LastFmSimilarArtistEntity(
+    @ColumnInfo(name = "source_artist") val sourceArtist: String,
+    @ColumnInfo(name = "similar_artist") val similarArtist: String,
+    @ColumnInfo(name = "match_score") val matchScore: Double,
+    @ColumnInfo(name = "fetched_at") val fetchedAt: Long
 )

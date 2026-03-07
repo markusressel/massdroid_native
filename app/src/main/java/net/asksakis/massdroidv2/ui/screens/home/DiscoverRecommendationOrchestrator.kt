@@ -3,6 +3,7 @@ package net.asksakis.massdroidv2.ui.screens.home
 import android.util.Log
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import net.asksakis.massdroidv2.data.lastfm.LastFmSimilarResolver
 import net.asksakis.massdroidv2.domain.model.Album
 import net.asksakis.massdroidv2.domain.model.Artist
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
@@ -16,7 +17,8 @@ private const val ORCHESTRATOR_TAG = "DiscoverReco"
 class DiscoverRecommendationOrchestrator(
     private val musicRepository: MusicRepository,
     private val playHistoryRepository: PlayHistoryRepository,
-    private val recommendationEngine: RecommendationEngine
+    private val recommendationEngine: RecommendationEngine,
+    private val lastFmSimilarResolver: LastFmSimilarResolver
 ) {
 
     suspend fun buildSuggestedArtists(
@@ -48,6 +50,15 @@ class DiscoverRecommendationOrchestrator(
             emptyList()
         }
 
+        val candidateNameMap = candidateArtists.groupBy { it.name.lowercase() }
+
+        val (similarArtistScores, similarArtistUris) = resolveSimilarArtists(
+            artistScores = artistScores,
+            candidateNameMap = candidateNameMap,
+            excludedArtistUris = excludedArtistUris,
+            artistIdentity = artistIdentity
+        )
+
         return recommendationEngine.buildSuggestedArtists(
             candidates = candidateArtists,
             genreScores = genreScores,
@@ -57,6 +68,8 @@ class DiscoverRecommendationOrchestrator(
             excludedArtistUris = excludedArtistUris,
             artistSignalScores = artistSignalScores,
             artistIdentity = artistIdentity,
+            similarArtistScores = similarArtistScores,
+            similarArtistUris = similarArtistUris,
             count = 10
         )
     }
@@ -88,9 +101,9 @@ class DiscoverRecommendationOrchestrator(
                 .toSet()
 
             val artistGenreMap = candidateArtists.mapNotNull { artist ->
-                artistIdentity(artist).let { it to artist.genres.toSet() }
+                artistIdentity(artist).let { it to artist.genres.map { g -> g.lowercase() }.toSet() }
             }.toMap()
-            val genreScoreMap = genreScores.associate { it.genre to it.score }
+            val genreScoreMap = genreScores.associate { it.genre.lowercase() to it.score }
 
             val allCandidateAlbums = mutableListOf<ScoredAlbum>()
 
@@ -123,11 +136,11 @@ class DiscoverRecommendationOrchestrator(
                     allCandidateAlbums.addAll(def.await())
                 }
 
-                val topGenreNames = genreScores.map { it.genre }.toSet()
+                val topGenreNames = genreScores.map { it.genre.lowercase() }.toSet()
                 val discoveryArtists = candidateArtists
                     .filter { artist -> artistIdentity(artist) !in topArtistUris }
                     .filterNot { artist -> artistIdentity(artist) in excludedArtistUris }
-                    .filter { it.genres.any { g -> g in topGenreNames } }
+                    .filter { it.genres.any { g -> g.lowercase() in topGenreNames } }
                     .shuffled()
                     .take(5)
 
@@ -135,7 +148,7 @@ class DiscoverRecommendationOrchestrator(
                     async {
                         try {
                             val albums = musicRepository.getArtistAlbums(artist.itemId, artist.provider)
-                            val genres = artist.genres.toSet()
+                            val genres = artist.genres.map { g -> g.lowercase() }.toSet()
                             albums.filter { album ->
                                 val key = albumIdentity(album)
                                 key !in recentAlbumUris && album.albumType != "single"
@@ -194,5 +207,47 @@ class DiscoverRecommendationOrchestrator(
     } catch (e: Exception) {
         Log.e(ORCHESTRATOR_TAG, "Failed to load discover albums", e)
         null
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun resolveSimilarArtists(
+        artistScores: List<net.asksakis.massdroidv2.domain.repository.ArtistScore>,
+        candidateNameMap: Map<String, List<Artist>>,
+        excludedArtistUris: Set<String>,
+        artistIdentity: (Artist) -> String
+    ): Pair<Map<String, Double>, Set<String>> = coroutineScope {
+        val topArtists = artistScores.take(5)
+        if (topArtists.isEmpty()) return@coroutineScope emptyMap<String, Double>() to emptySet<String>()
+
+        val deferreds = topArtists.map { score ->
+            async {
+                try {
+                    lastFmSimilarResolver.resolve(score.artistName)
+                } catch (e: Exception) {
+                    Log.w(ORCHESTRATOR_TAG, "Similar resolve failed for ${score.artistName}: ${e.message}")
+                    emptyList()
+                }
+            }
+        }
+
+        val similarScores = mutableMapOf<String, Double>()
+        val similarUris = mutableSetOf<String>()
+        val topArtistUris = artistScores.map { it.artistUri }.toSet()
+
+        for (deferred in deferreds) {
+            val similars = deferred.await()
+            for (similar in similars) {
+                val matched = candidateNameMap[similar.name] ?: continue
+                for (artist in matched) {
+                    val key = artistIdentity(artist)
+                    if (key in topArtistUris || key in excludedArtistUris) continue
+                    similarScores[key] = maxOf(similarScores[key] ?: 0.0, similar.matchScore)
+                    similarUris.add(key)
+                }
+            }
+        }
+
+        Log.d(ORCHESTRATOR_TAG, "Similar artists: ${similarUris.size} matched from ${topArtists.size} sources")
+        similarScores to similarUris
     }
 }

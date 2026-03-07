@@ -37,13 +37,13 @@ class DiscoverSectionBuilder @Inject constructor() {
         val libraryFolders = filtered.filter { it.provider == "library" }
             .associateBy { it.itemId }
 
-        // 1. Genre Radio (BLL-weighted)
+        // 1. Genre Radio (BLL-weighted, top 10)
         val sortedGenres = if (bllGenreScores.isNotEmpty()) {
-            val scoreMap = bllGenreScores.associate { it.genre to it.score }
-            genreItems.sortedByDescending { scoreMap[it.name] ?: 0.0 }
+            val scoreMap = bllGenreScores.associate { it.genre.lowercase() to it.score }
+            genreItems.sortedByDescending { scoreMap[it.name.lowercase()] ?: 0.0 }
         } else {
             genreItems
-        }
+        }.take(10)
         if (sortedGenres.size >= MIN_SECTION_ITEMS) {
             sections.add(DiscoverSection.GenreRadioSection("Genre Radio", sortedGenres))
         }

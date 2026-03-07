@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,7 @@ import net.asksakis.massdroidv2.data.websocket.EventType
 import net.asksakis.massdroidv2.data.websocket.MaApiException
 import net.asksakis.massdroidv2.data.websocket.MaWebSocketClient
 import net.asksakis.massdroidv2.domain.model.Album
+import net.asksakis.massdroidv2.domain.model.MediaType
 import net.asksakis.massdroidv2.domain.model.Artist
 import net.asksakis.massdroidv2.domain.model.PlaybackState
 import net.asksakis.massdroidv2.domain.model.RecommendationFolder
@@ -51,8 +53,8 @@ private const val RECENT_FAVORITE_TRACKS_TITLE = "Recent Favorite Tracks"
 private const val RECENT_TRACKS_QUERY_FACTOR = 5
 private const val BLL_ARTIST_SCORE_LIMIT = 500
 private const val MAX_GENRE_RADIO_ARTIST_URIS = 30
-private const val GENRE_RADIO_ATTEMPT_POOL_SIZE = 12
-private val GENRE_RADIO_BATCH_SIZES = listOf(8, 4, 2, 1)
+private const val GENRE_RADIO_ATTEMPT_POOL_SIZE = 20
+private val GENRE_RADIO_BATCH_SIZES = listOf(12, 8, 4, 2, 1)
 private const val GENRE_RADIO_EXPLORATION_COUNT = 4
 private const val GENRE_RADIO_ALLOWED_DECADE_GAP = 10
 private const val GENRE_RADIO_DECADE_LOOKBACK_DAYS = 720
@@ -60,6 +62,8 @@ private const val ARTIST_DECADE_LOOKBACK_DAYS = 720
 private const val SMART_MIX_DAYPART_LOOKBACK_DAYS = 180
 private const val SMART_MIX_TRACK_TARGET = 40
 private const val SMART_MIX_FAVORITES_QUERY_LIMIT = 500
+private const val GENRE_RADIO_DISCOVERY_SEEDS = 6
+private const val GENRE_RADIO_SIMILAR_RESOLVE_LIMIT = 3
 private const val GENRE_RADIO_SPAM_WINDOW_MS = 1_500L
 private const val GENRE_RADIO_START_WAIT_TIMEOUT_MS = 8_000L
 private const val CONNECTION_PING_SAMPLES = 3
@@ -104,7 +108,8 @@ class DiscoverViewModel @Inject constructor(
     private val discoverCache: DiscoverCache,
     private val recommendationEngine: RecommendationEngine,
     private val smartMixEngine: SmartMixEngine,
-    private val sectionBuilder: DiscoverSectionBuilder
+    private val sectionBuilder: DiscoverSectionBuilder,
+    private val lastFmSimilarResolver: net.asksakis.massdroidv2.data.lastfm.LastFmSimilarResolver
 ) : ViewModel() {
 
     private val sectionCoordinator = DiscoverSectionCoordinator(
@@ -115,7 +120,8 @@ class DiscoverViewModel @Inject constructor(
     private val recommendationOrchestrator = DiscoverRecommendationOrchestrator(
         musicRepository = musicRepository,
         playHistoryRepository = playHistoryRepository,
-        recommendationEngine = recommendationEngine
+        recommendationEngine = recommendationEngine,
+        lastFmSimilarResolver = lastFmSimilarResolver
     )
     private val _uiState = MutableStateFlow(DiscoverUiState())
     val sections: StateFlow<List<DiscoverSection>> = _uiState.map { it.sections }
@@ -135,6 +141,7 @@ class DiscoverViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ConnectionProbeState())
 
     private var genreArtists = mapOf<String, List<String>>()
+    private var strictGenreArtists = mapOf<String, List<String>>()
     private var cacheStale = true
     private var mediaEventJob: Job? = null
     private var fullLoadJob: Job? = null
@@ -183,14 +190,18 @@ class DiscoverViewModel @Inject constructor(
         } catch (_: Exception) {
             emptyMap()
         }
+        strictGenreArtists = cached.topArtists
+            .flatMap { artist -> artist.genres.map { genre -> genre.lowercase() to artist.uri } }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, uris) -> uris.distinctBy { artistKeyFromUri(it) ?: it } }
         genreArtists = buildMap {
-            val allGenres = cached.topArtists.flatMap { it.genres }.toSet() + historyGenreArtists.keys
+            val allGenres = strictGenreArtists.keys + historyGenreArtists.keys
             val cachedArtistMap = cached.topArtists.mapNotNull { artist ->
                 artistKey(artist)?.let { it to artist }
             }.toMap()
             for (genre in allGenres) {
                 val merged = buildList {
-                    addAll(cached.topArtists.filter { genre in it.genres }.map { it.uri })
+                    addAll(strictGenreArtists[genre].orEmpty())
                     addAll(
                         historyGenreArtists[genre]
                             .orEmpty()
@@ -333,6 +344,7 @@ class DiscoverViewModel @Inject constructor(
                     PlayerRepository.QueueFilterMode.SMART_GENERATED
                 )
                 musicRepository.playMedia(queueId, trackUris, option = "replace")
+                logQueueContents("smartMix")
                 _uiState.value = _uiState.value.copy(
                     smartMixMessage = "Smart mix ready (${trackUris.size} tracks)"
                 )
@@ -577,6 +589,13 @@ class DiscoverViewModel @Inject constructor(
                 } else {
                     merged.filterNot { isArtistExcluded(it, excludedArtistUris) }
                 }
+                strictGenreArtists = content.strictGenreArtists
+                    .mapValues { (_, uris) ->
+                        uris.filterNot { uri ->
+                            val key = artistKeyFromUri(uri)
+                            key != null && key in excludedArtistUris
+                        }
+                    }
                 genreArtists = content.genreArtists
                     .mapValues { (_, uris) ->
                         uris.filterNot { uri ->
@@ -661,18 +680,21 @@ class DiscoverViewModel @Inject constructor(
         val genreMap = mutableMapOf<String, MutableList<Artist>>()
         for (artist in artists) {
             for (genre in artist.genres) {
-                genreMap.getOrPut(genre) { mutableListOf() }.add(artist)
+                genreMap.getOrPut(genre.lowercase()) { mutableListOf() }.add(artist)
             }
         }
         // Merge server artists with Room DB artists (distinct URIs per genre)
         val serverUris = genreMap.mapValues { (_, artistList) ->
             artistList.map { it.uri }
         }
+        strictGenreArtists = serverUris.mapValues { (_, uris) ->
+            uris.distinctBy { artistKeyFromUri(it) ?: it }
+        }
         genreArtists = buildMap {
             val allGenres = serverUris.keys + historyGenreArtists.keys
             for (genre in allGenres) {
                 val merged = buildList {
-                    addAll(serverUris[genre].orEmpty())
+                    addAll(strictGenreArtists[genre].orEmpty())
                     addAll(
                         historyGenreArtists[genre]
                             .orEmpty()
@@ -687,16 +709,17 @@ class DiscoverViewModel @Inject constructor(
             val historyCount = historyGenreArtists[genre]?.size ?: 0
             Log.d(TAG, "Genre '$genre': ${uris.size} artists (server=$serverCount, history=$historyCount)")
         }
-        return genreMap
-            .map { (name, artistList) ->
+        return genreArtists
+            .filter { (_, uris) -> uris.isNotEmpty() }
+            .map { (name, uris) ->
                 GenreItem(
                     name = name,
-                    count = artistList.size,
-                    imageUrl = artistList.firstOrNull()?.imageUrl
+                    count = uris.size,
+                    imageUrl = genreMap[name]?.firstOrNull()?.imageUrl
+                        ?: uris.firstNotNullOfOrNull { artistByUri[it]?.imageUrl }
                 )
             }
             .sortedByDescending { it.count }
-            .take(10)
     }
 
     @Suppress("TooGenericExceptionCaught")
@@ -720,13 +743,14 @@ class DiscoverViewModel @Inject constructor(
     fun startGenreRadio(genre: String) {
         val queueId = playerRepository.selectedPlayer.value?.playerId ?: return
         val nowMs = System.currentTimeMillis()
-        val candidateUris = genreArtists[genre]
-            ?.distinctBy { uri -> artistKeyFromUri(uri) ?: uri }
-            ?.filterNot { uri ->
-                val key = artistKeyFromUri(uri)
-                key != null && key in excludedArtistUris
-            }
-            .orEmpty()
+        val strictCandidates = filteredGenreCandidateUris(strictGenreArtists[genre])
+        val broadCandidates = filteredGenreCandidateUris(genreArtists[genre])
+        val candidateUris = when {
+            strictCandidates.size >= 4 -> strictCandidates
+            strictCandidates.isNotEmpty() -> (strictCandidates + broadCandidates)
+                .distinctBy { uri -> artistKeyFromUri(uri) ?: uri }
+            else -> broadCandidates
+        }
         if (candidateUris.isEmpty()) return
         if (radioStartJob?.isActive == true) {
             Log.d(TAG, "startGenreRadio ignored: request already in flight")
@@ -747,15 +771,28 @@ class DiscoverViewModel @Inject constructor(
                 ensureArtistDecadesLoaded()
                 val focusDecade = loadGenreRadioFocusDecade(genre, candidateUris)
                 val rankedUris = rankGenreRadioArtistUris(candidateUris, focusDecade)
-                val payloadUris = prioritizeDecadeCoherentUris(rankedUris, focusDecade)
+                val libraryUris = prioritizeDecadeCoherentUris(rankedUris, focusDecade)
                     .take(MAX_GENRE_RADIO_ARTIST_URIS)
-                if (payloadUris.isEmpty()) return@launch
+                if (libraryUris.isEmpty()) return@launch
+
+                val discoveryUris = resolveDiscoverySeeds(libraryUris)
+                val payloadUris = (libraryUris + discoveryUris).distinct()
 
                 Log.d(
                     TAG,
-                    "startGenreRadio: genre='$genre', decadeFocus=$focusDecade, " +
-                        "sending ${payloadUris.size}/${candidateUris.size} artist URIs"
+                    "startGenreRadio: genre='$genre', strict=${strictCandidates.size}, " +
+                        "broad=${broadCandidates.size}, decadeFocus=$focusDecade, " +
+                        "library=${libraryUris.size}, discovery=${discoveryUris.size}, " +
+                        "sending ${payloadUris.size} artist URIs"
                 )
+                payloadUris.forEachIndexed { i, uri ->
+                    val key = artistKeyFromUri(uri)
+                    val name = artistByUri[key]?.name ?: artistByUri[uri]?.name ?: uri
+                    val bll = bllArtistScoreMap[key ?: uri]?.let { String.format("%.2f", it) } ?: "-"
+                    val decade = artistDominantDecades[key ?: uri]?.toString() ?: "-"
+                    val tag = if (uri in discoveryUris) " [DISCOVERY]" else ""
+                    Log.d(TAG, "  seed #${i + 1}: $name (bll=$bll, decade=$decade)$tag $uri")
+                }
                 _uiState.value = _uiState.value.copy(radioOverlayGenre = genre)
                 val requestAccepted = startGenreRadioWithFallback(
                     queueId = queueId,
@@ -773,6 +810,8 @@ class DiscoverViewModel @Inject constructor(
                 if (!started) {
                     Log.w(TAG, "startGenreRadio: start confirmation timeout for genre='$genre'")
                 }
+                sanitizeGenreRadioQueue(queueId, genre)
+                logQueueContents("genreRadio[$genre]")
                 _uiState.value = _uiState.value.copy(radioOverlayGenre = null)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start genre radio", e)
@@ -781,6 +820,65 @@ class DiscoverViewModel @Inject constructor(
                 radioStartJob = null
             }
         }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun resolveDiscoverySeeds(libraryUris: List<String>): List<String> {
+        val seedArtists = libraryUris.take(GENRE_RADIO_SIMILAR_RESOLVE_LIMIT).mapNotNull { uri ->
+            val key = artistKeyFromUri(uri)
+            artistByUri[key]?.name ?: artistByUri[uri]?.name
+        }
+        if (seedArtists.isEmpty()) return emptyList()
+
+        val libraryNames = artistByUri.values.map { it.name.lowercase() }.toSet()
+        val discoveryNames = mutableSetOf<String>()
+
+        coroutineScope {
+            val deferreds = seedArtists.map { name ->
+                async {
+                    try {
+                        lastFmSimilarResolver.resolve(name)
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
+            }
+            for (deferred in deferreds) {
+                for (similar in deferred.await()) {
+                    if (similar.name !in libraryNames && similar.matchScore >= 0.3) {
+                        discoveryNames.add(similar.name)
+                    }
+                }
+            }
+        }
+        if (discoveryNames.isEmpty()) return emptyList()
+
+        val discoveryUris = mutableListOf<String>()
+        for (name in discoveryNames.take(GENRE_RADIO_DISCOVERY_SEEDS * 2)) {
+            if (discoveryUris.size >= GENRE_RADIO_DISCOVERY_SEEDS) break
+            try {
+                val result = musicRepository.search(name, mediaTypes = listOf(MediaType.ARTIST), limit = 1)
+                val artist = result.artists.firstOrNull() ?: continue
+                if (artist.name.lowercase() == name) {
+                    discoveryUris.add(artist.uri)
+                    Log.d(TAG, "Discovery seed: $name -> ${artist.uri}")
+                }
+            } catch (_: Exception) {
+                // skip
+            }
+        }
+        Log.d(TAG, "resolveDiscoverySeeds: ${discoveryUris.size} found from ${discoveryNames.size} candidates")
+        return discoveryUris
+    }
+
+    private fun filteredGenreCandidateUris(uris: List<String>?): List<String> {
+        return uris
+            .orEmpty()
+            .distinctBy { uri -> artistKeyFromUri(uri) ?: uri }
+            .filterNot { uri ->
+                val key = artistKeyFromUri(uri)
+                key != null && key in excludedArtistUris
+            }
     }
 
     private suspend fun startGenreRadioWithFallback(
@@ -808,7 +906,8 @@ class DiscoverViewModel @Inject constructor(
                         queueId = queueId,
                         uris = batch,
                         radioMode = true,
-                        awaitResponse = true
+                        awaitResponse = true,
+                        timeoutMs = 90_000
                     )
                     return true
                 } catch (e: MaApiException) {
@@ -880,10 +979,9 @@ class DiscoverViewModel @Inject constructor(
     private fun rankGenreRadioArtistUris(candidateUris: List<String>, focusDecade: Int?): List<String> {
         val unique = candidateUris.distinctBy { uri -> artistKeyFromUri(uri) ?: uri }
         if (unique.isEmpty()) return emptyList()
-        val hasScores = bllArtistScoreMap.isNotEmpty()
         val ranked = unique.shuffled().sortedByDescending { uri ->
             val key = artistKeyFromUri(uri) ?: uri
-            val bll = bllArtistScoreMap[key] ?: if (hasScores) Double.NEGATIVE_INFINITY else 0.0
+            val bll = bllArtistScoreMap[key] ?: 0.0
             val smart = smartArtistScoreMap[key] ?: 0.0
             val base = bll + (smart * 0.5)
             base + decadeAdjustment(uri, focusDecade)
@@ -959,6 +1057,69 @@ class DiscoverViewModel @Inject constructor(
             }
         }
         return started == true
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun sanitizeGenreRadioQueue(queueId: String, genre: String) {
+        try {
+            val items = musicRepository.getQueueItems(queueId)
+            if (items.size < 2) return
+
+            val seenTrackUris = mutableSetOf<String>()
+            var previousArtistKeys = emptySet<String>()
+            val removeQueueItemIds = mutableListOf<String>()
+
+            items.forEachIndexed { index, item ->
+                val track = item.track
+                val trackUri = track?.uri.orEmpty()
+                val artistKeys = buildSet {
+                    track?.artistUris?.forEach(::add)
+                    track?.artistUri?.let { uri ->
+                        MediaIdentity.canonicalArtistKey(uri = uri)?.let(::add)
+                    }
+                }
+
+                val duplicateTrack = trackUri.isNotBlank() && !seenTrackUris.add(trackUri)
+                val consecutiveSameArtist = index > 0 &&
+                    artistKeys.isNotEmpty() &&
+                    previousArtistKeys.isNotEmpty() &&
+                    artistKeys.any { it in previousArtistKeys }
+
+                if (duplicateTrack || consecutiveSameArtist) {
+                    removeQueueItemIds += item.queueItemId
+                } else if (artistKeys.isNotEmpty()) {
+                    previousArtistKeys = artistKeys
+                }
+            }
+
+            if (removeQueueItemIds.isEmpty()) return
+
+            removeQueueItemIds.forEach { itemId ->
+                musicRepository.deleteQueueItem(queueId, itemId)
+            }
+            Log.d(
+                TAG,
+                "sanitizeGenreRadioQueue[$genre]: removed ${removeQueueItemIds.size} duplicate/consecutive items"
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "sanitizeGenreRadioQueue failed: ${e.message}")
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun logQueueContents(source: String) {
+        try {
+            val queueId = playerRepository.selectedPlayer.value?.playerId ?: return
+            val items = musicRepository.getQueueItems(queueId)
+            Log.d(TAG, "Queue [$source]: ${items.size} tracks")
+            items.forEachIndexed { i, item ->
+                val artist = item.track?.artistNames ?: ""
+                val name = item.track?.name ?: item.name
+                Log.d(TAG, "  #${i + 1}: $artist - $name")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "logQueueContents failed: ${e.message}")
+        }
     }
 
     fun playTrack(track: Track) {

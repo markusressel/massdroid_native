@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 import net.asksakis.massdroidv2.data.websocket.*
 import net.asksakis.massdroidv2.domain.model.*
+import net.asksakis.massdroidv2.data.lastfm.LastFmGenreResolver
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
 import net.asksakis.massdroidv2.domain.repository.PlayHistoryRepository
 import net.asksakis.massdroidv2.domain.repository.PlayerRepository
@@ -21,7 +22,8 @@ class PlayerRepositoryImpl @Inject constructor(
     private val json: Json,
     private val playHistoryRepository: PlayHistoryRepository,
     private val settingsRepository: SettingsRepository,
-    private val smartListeningRepository: SmartListeningRepository
+    private val smartListeningRepository: SmartListeningRepository,
+    private val lastFmGenreResolver: LastFmGenreResolver
 ) : PlayerRepository {
 
     companion object {
@@ -299,10 +301,7 @@ class PlayerRepositoryImpl @Inject constructor(
                 } ?: emptyList()
 
             // Start with track-level metadata genres when present, then enrich from artist cache.
-            val trackMetadataGenres = mediaItem.metadata?.genres
-                ?.map { it.trim() }
-                ?.filter { it.isNotEmpty() }
-                ?: emptyList()
+            val trackMetadataGenres = normalizeGenres(mediaItem.metadata?.genres)
 
             // Resolve genres from cache immediately if available
             val cachedGenres = mediaItem.artists
@@ -330,6 +329,12 @@ class PlayerRepositoryImpl @Inject constructor(
                     itemId = mediaItem.artists?.firstOrNull()?.itemId,
                     uri = mediaItem.artists?.firstOrNull()?.uri
                 ),
+                artistUris = mediaItem.artists
+                    ?.mapNotNull { artist ->
+                        MediaIdentity.canonicalArtistKey(itemId = artist.itemId, uri = artist.uri)
+                    }
+                    ?.distinct()
+                    ?: emptyList(),
                 albumUri = MediaIdentity.canonicalAlbumKey(
                     itemId = mediaItem.album?.itemId,
                     uri = mediaItem.album?.uri
@@ -370,6 +375,19 @@ class PlayerRepositoryImpl @Inject constructor(
             return track.copy(genres = mergedGenres.toList())
         }
 
+        // Try Last.fm first (better genre data when API key is configured)
+        artists.forEach { (_, name) ->
+            val tags = lastFmGenreResolver.resolve(name)
+            if (tags.isNotEmpty()) {
+                Log.d(TAG, "History genres from Last.fm '$name': $tags")
+                mergedGenres.addAll(tags)
+            }
+        }
+        if (mergedGenres.isNotEmpty()) {
+            return track.copy(genres = mergedGenres.toList())
+        }
+
+        // Fall back to MA metadata chain
         val trackMeta = fetchMediaItem(
             command = MaCommands.Music.TRACKS_GET,
             ref = trackRef(track)
@@ -402,7 +420,9 @@ class PlayerRepositoryImpl @Inject constructor(
             }
         }
         if (mergedGenres.isNotEmpty()) {
-            Log.d(TAG, "History genres from artist metadata for ${track.uri}: $mergedGenres")
+            Log.d(TAG, "History genres from MA artist metadata for ${track.uri}: $mergedGenres")
+        } else {
+            Log.d(TAG, "No genres found (Last.fm + MA) for ${track.uri}")
         }
         return track.copy(genres = mergedGenres.toList())
     }
@@ -501,7 +521,7 @@ class PlayerRepositoryImpl @Inject constructor(
             if (value.isEmpty()) return@forEach
             val key = value.lowercase()
             if (seen.add(key)) {
-                result.add(value)
+                result.add(key)
             }
         }
         return result
@@ -640,25 +660,39 @@ class PlayerRepositoryImpl @Inject constructor(
     ) {
         Log.d(TAG, "fetchAndApplyGenres: ${artists.map { "${it.name}(${it.itemId})" }}")
         val allGenres = mutableSetOf<String>()
+        // Try Last.fm first (better genre data when API key is configured)
         for (artist in artists) {
-            try {
-                val result = wsClient.sendCommand(
-                    MaCommands.Music.ARTISTS_GET,
-                    ItemRefLazyArgs(
-                        itemId = artist.itemId,
-                        provider = artist.provider,
-                        lazy = true
+            val tags = lastFmGenreResolver.resolve(artist.name)
+            if (tags.isNotEmpty()) {
+                Log.d(TAG, "Last.fm genres for ${artist.name}: $tags")
+                allGenres.addAll(tags)
+                artistGenreCache[artist.uri] = tags
+            }
+        }
+        // Fall back to MA server if Last.fm returned nothing
+        if (allGenres.isEmpty()) {
+            for (artist in artists) {
+                try {
+                    val result = wsClient.sendCommand(
+                        MaCommands.Music.ARTISTS_GET,
+                        ItemRefLazyArgs(
+                            itemId = artist.itemId,
+                            provider = artist.provider,
+                            lazy = true
+                        )
                     )
-                )
-                val genres = result?.let {
-                    json.decodeFromJsonElement<ServerMediaItem>(it)
-                }?.metadata?.genres ?: emptyList()
-                Log.d(TAG, "Artist ${artist.name} genres: $genres")
-                artistGenreCache[artist.uri] = genres
-                allGenres.addAll(genres)
-            } catch (e: Exception) {
-                Log.w(TAG, "Genre fetch failed for ${artist.name}: ${e.message}")
-                artistGenreCache[artist.uri] = emptyList()
+                    val genres = normalizeGenres(
+                        result?.let {
+                            json.decodeFromJsonElement<ServerMediaItem>(it)
+                        }?.metadata?.genres
+                    )
+                    Log.d(TAG, "MA genres for ${artist.name}: $genres")
+                    artistGenreCache[artist.uri] = genres
+                    allGenres.addAll(genres)
+                } catch (e: Exception) {
+                    Log.w(TAG, "MA genre fetch failed for ${artist.name}: ${e.message}")
+                    artistGenreCache[artist.uri] = emptyList()
+                }
             }
         }
         // Include already-known genres already attached to the tracked item (track metadata / previous cache).
@@ -1046,6 +1080,12 @@ fun ServerQueue.toDomain(wsClient: MaWebSocketClient): QueueState = QueueState(
                         itemId = mi.artists?.firstOrNull()?.itemId,
                         uri = mi.artists?.firstOrNull()?.uri
                     ),
+                    artistUris = mi.artists
+                        ?.mapNotNull { artist ->
+                            MediaIdentity.canonicalArtistKey(itemId = artist.itemId, uri = artist.uri)
+                        }
+                        ?.distinct()
+                        ?: emptyList(),
                     albumUri = MediaIdentity.canonicalAlbumKey(
                         itemId = mi.album?.itemId,
                         uri = mi.album?.uri

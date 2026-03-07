@@ -22,6 +22,7 @@ interface SettingsRepository {
     val librarySortOptions: Flow<Map<Int, SortOption>>
     val librarySortDescending: Flow<Map<Int, Boolean>>
     val libraryFavoritesOnly: Flow<Map<Int, Boolean>>
+    val lastFmApiKey: Flow<String>
 
     suspend fun setServerUrl(url: String)
     suspend fun setAuthToken(token: String)
@@ -39,4 +40,5 @@ interface SettingsRepository {
     suspend fun setLibrarySortOption(tab: Int, option: SortOption)
     suspend fun setLibrarySortDescending(tab: Int, descending: Boolean)
     suspend fun setLibraryFavoritesOnly(tab: Int, favoritesOnly: Boolean)
+    suspend fun setLastFmApiKey(key: String)
 }

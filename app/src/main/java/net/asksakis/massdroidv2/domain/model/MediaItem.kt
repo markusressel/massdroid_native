@@ -19,6 +19,7 @@ data class Track(
     val albumItemId: String? = null,
     val albumProvider: String? = null,
     val artistUri: String? = null,
+    val artistUris: List<String> = emptyList(),
     val albumUri: String? = null,
     val genres: List<String> = emptyList(),
     val year: Int? = null

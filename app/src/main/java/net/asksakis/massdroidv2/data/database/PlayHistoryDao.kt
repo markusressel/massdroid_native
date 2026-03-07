@@ -38,6 +38,31 @@ interface PlayHistoryDao {
     @Insert
     suspend fun insertSmartFeedback(feedback: List<SmartFeedbackEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertArtistGenre(artistGenre: ArtistGenreEntity)
+
+    @Query("SELECT genre_name FROM artist_genres WHERE artist_uri = :artistUri")
+    suspend fun getGenresForArtist(artistUri: String): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertLastFmTags(tags: LastFmArtistTagsEntity)
+
+    @Transaction
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSimilarArtists(entities: List<LastFmSimilarArtistEntity>)
+
+    @Query("SELECT * FROM lastfm_similar_artists WHERE source_artist = :sourceArtist")
+    suspend fun getSimilarArtists(sourceArtist: String): List<LastFmSimilarArtistEntity>
+
+    @Query("SELECT fetched_at FROM lastfm_similar_artists WHERE source_artist = :sourceArtist LIMIT 1")
+    suspend fun getSimilarArtistsFetchedAt(sourceArtist: String): Long?
+
+    @Query("SELECT * FROM lastfm_artist_tags WHERE artist_name = :artistName")
+    suspend fun getLastFmTags(artistName: String): LastFmArtistTagsEntity?
+
+    @Query("DELETE FROM artist_genres WHERE artist_uri NOT IN (SELECT DISTINCT uri FROM artists)")
+    suspend fun deleteOrphanArtistGenres()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertBlockedArtist(artist: BlockedArtistEntity)
 
@@ -72,15 +97,29 @@ interface PlayHistoryDao {
     )
     suspend fun getArtistFeedbackSignals(since: Long): List<ArtistFeedbackSignalRow>
 
-    // Top genres by play count
+    // Top genres by play count (track_genres + artist_genres via Last.fm)
     @Query(
         """
-        SELECT g.name AS genre, COUNT(*) AS playCount
-        FROM play_history ph
-        JOIN track_genres tg ON tg.track_uri = ph.track_uri
-        JOIN genres g ON g.name = tg.genre_name
-        WHERE ph.played_at > :since
-        GROUP BY g.name
+        SELECT genre, SUM(cnt) AS playCount FROM (
+            SELECT g.name AS genre, COUNT(*) AS cnt
+            FROM play_history ph
+            JOIN track_genres tg ON tg.track_uri = ph.track_uri
+            JOIN genres g ON g.name = tg.genre_name
+            WHERE ph.played_at > :since
+            GROUP BY g.name
+            UNION ALL
+            SELECT g.name AS genre, COUNT(*) AS cnt
+            FROM play_history ph
+            JOIN track_artists ta ON ta.track_uri = ph.track_uri
+            JOIN artist_genres ag ON ag.artist_uri = ta.artist_uri
+            JOIN genres g ON g.name = ag.genre_name
+            WHERE ph.played_at > :since
+              AND ag.genre_name NOT IN (
+                  SELECT tg2.genre_name FROM track_genres tg2 WHERE tg2.track_uri = ph.track_uri
+              )
+            GROUP BY g.name
+        )
+        GROUP BY genre
         ORDER BY playCount DESC
         LIMIT :limit
         """
@@ -210,14 +249,26 @@ interface PlayHistoryDao {
     @Query("SELECT genre_name FROM track_genres WHERE track_uri = :trackUri")
     suspend fun getGenresForTrack(trackUri: String): List<String>
 
-    // Genre play timestamps for BLL scoring
+    // Genre play timestamps for BLL scoring (track_genres + artist_genres)
     @Query(
         """
-        SELECT g.name AS genre, ph.played_at AS playedAt
-        FROM play_history ph
-        JOIN track_genres tg ON tg.track_uri = ph.track_uri
-        JOIN genres g ON g.name = tg.genre_name
-        WHERE ph.played_at > :since
+        SELECT genre, playedAt FROM (
+            SELECT g.name AS genre, ph.played_at AS playedAt
+            FROM play_history ph
+            JOIN track_genres tg ON tg.track_uri = ph.track_uri
+            JOIN genres g ON g.name = tg.genre_name
+            WHERE ph.played_at > :since
+            UNION ALL
+            SELECT g.name AS genre, ph.played_at AS playedAt
+            FROM play_history ph
+            JOIN track_artists ta ON ta.track_uri = ph.track_uri
+            JOIN artist_genres ag ON ag.artist_uri = ta.artist_uri
+            JOIN genres g ON g.name = ag.genre_name
+            WHERE ph.played_at > :since
+              AND ag.genre_name NOT IN (
+                  SELECT tg2.genre_name FROM track_genres tg2 WHERE tg2.track_uri = ph.track_uri
+              )
+        )
         """
     )
     suspend fun getGenrePlayTimestamps(since: Long): List<GenrePlayTimestamp>
@@ -238,28 +289,40 @@ interface PlayHistoryDao {
     )
     suspend fun getArtistPlayTimestamps(since: Long): List<ArtistPlayTimestamp>
 
-    // Genre -> artist URI mappings (for genre radio)
+    // Genre -> artist URI mappings (for genre radio), includes artist_genres from Last.fm
     @Query(
         """
-        SELECT
-            tg.genre_name AS genre,
-            a.uri AS artistUri
-        FROM track_genres tg
-        JOIN track_artists ta ON ta.track_uri = tg.track_uri
-        JOIN artists a ON a.uri = ta.artist_uri
-        GROUP BY tg.genre_name, artistUri
+        SELECT genre, artistUri FROM (
+            SELECT tg.genre_name AS genre, a.uri AS artistUri
+            FROM track_genres tg
+            JOIN track_artists ta ON ta.track_uri = tg.track_uri
+            JOIN artists a ON a.uri = ta.artist_uri
+            UNION
+            SELECT ag.genre_name AS genre, ag.artist_uri AS artistUri
+            FROM artist_genres ag
+        )
+        GROUP BY genre, artistUri
         """
     )
     suspend fun getGenreArtistUris(): List<GenreArtistUri>
 
-    // Genre co-occurrence for adjacency map
+    // Genre co-occurrence for adjacency map (artist_genres pairs count too)
     @Query(
         """
-        SELECT tg1.genre_name AS genre1, tg2.genre_name AS genre2, COUNT(*) AS coCount
-        FROM track_genres tg1
-        JOIN track_genres tg2 ON tg1.track_uri = tg2.track_uri
-        WHERE tg1.genre_name < tg2.genre_name
-        GROUP BY tg1.genre_name, tg2.genre_name
+        SELECT genre1, genre2, SUM(cnt) AS coCount FROM (
+            SELECT tg1.genre_name AS genre1, tg2.genre_name AS genre2, COUNT(*) AS cnt
+            FROM track_genres tg1
+            JOIN track_genres tg2 ON tg1.track_uri = tg2.track_uri
+            WHERE tg1.genre_name < tg2.genre_name
+            GROUP BY tg1.genre_name, tg2.genre_name
+            UNION ALL
+            SELECT ag1.genre_name AS genre1, ag2.genre_name AS genre2, COUNT(*) AS cnt
+            FROM artist_genres ag1
+            JOIN artist_genres ag2 ON ag1.artist_uri = ag2.artist_uri
+            WHERE ag1.genre_name < ag2.genre_name
+            GROUP BY ag1.genre_name, ag2.genre_name
+        )
+        GROUP BY genre1, genre2
         HAVING coCount >= 2
         """
     )
@@ -284,19 +347,34 @@ interface PlayHistoryDao {
     )
     suspend fun getArtistDecadePlayCounts(since: Long): List<ArtistDecadePlayCount>
 
-    // Top listened decades for a specific genre
+    // Top listened decades for a specific genre (track_genres + artist_genres)
     @Query(
         """
-        SELECT ((al.year / 10) * 10) AS decade,
-               COUNT(*) AS playCount
-        FROM play_history ph
-        JOIN tracks t ON t.uri = ph.track_uri
-        JOIN albums al ON al.uri = t.album_uri
-        JOIN track_genres tg ON tg.track_uri = t.uri
-        WHERE ph.played_at > :since
-          AND al.year IS NOT NULL
-          AND al.year > 0
-          AND tg.genre_name = :genre
+        SELECT decade, SUM(cnt) AS playCount FROM (
+            SELECT ((al.year / 10) * 10) AS decade, COUNT(*) AS cnt
+            FROM play_history ph
+            JOIN tracks t ON t.uri = ph.track_uri
+            JOIN albums al ON al.uri = t.album_uri
+            JOIN track_genres tg ON tg.track_uri = t.uri
+            WHERE ph.played_at > :since
+              AND al.year IS NOT NULL AND al.year > 0
+              AND tg.genre_name = :genre
+            GROUP BY decade
+            UNION ALL
+            SELECT ((al.year / 10) * 10) AS decade, COUNT(*) AS cnt
+            FROM play_history ph
+            JOIN tracks t ON t.uri = ph.track_uri
+            JOIN albums al ON al.uri = t.album_uri
+            JOIN track_artists ta ON ta.track_uri = t.uri
+            JOIN artist_genres ag ON ag.artist_uri = ta.artist_uri
+            WHERE ph.played_at > :since
+              AND al.year IS NOT NULL AND al.year > 0
+              AND ag.genre_name = :genre
+              AND :genre NOT IN (
+                  SELECT tg2.genre_name FROM track_genres tg2 WHERE tg2.track_uri = t.uri
+              )
+            GROUP BY decade
+        )
         GROUP BY decade
         ORDER BY playCount DESC
         LIMIT :limit
@@ -321,7 +399,15 @@ interface PlayHistoryDao {
     @Query("DELETE FROM artists WHERE uri NOT IN (SELECT DISTINCT artist_uri FROM track_artists)")
     suspend fun deleteOrphanArtists()
 
-    @Query("DELETE FROM genres WHERE name NOT IN (SELECT DISTINCT genre_name FROM track_genres)")
+    @Query(
+        """
+        DELETE FROM genres WHERE name NOT IN (
+            SELECT DISTINCT genre_name FROM track_genres
+            UNION
+            SELECT DISTINCT genre_name FROM artist_genres
+        )
+        """
+    )
     suspend fun deleteOrphanGenres()
 
     @Query("DELETE FROM smart_feedback WHERE created_at < :before")
@@ -354,11 +440,23 @@ interface PlayHistoryDao {
     @Query("DELETE FROM genres")
     suspend fun clearGenres()
 
+    @Query("DELETE FROM artist_genres")
+    suspend fun clearArtistGenres()
+
+    @Query("DELETE FROM lastfm_artist_tags")
+    suspend fun clearLastFmTags()
+
+    @Query("DELETE FROM lastfm_similar_artists")
+    suspend fun clearLastFmSimilarArtists()
+
     @Transaction
     suspend fun clearRecommendationData() {
         clearSmartFeedback()
         clearBlockedArtists()
         clearPlayHistory()
+        clearArtistGenres()
+        clearLastFmTags()
+        clearLastFmSimilarArtists()
         clearTrackGenres()
         clearTrackArtists()
         clearTracks()

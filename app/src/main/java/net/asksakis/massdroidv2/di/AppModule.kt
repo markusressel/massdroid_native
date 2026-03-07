@@ -103,6 +103,50 @@ object AppModule {
         audio: AudioStreamManager,
     ): SendspinManager = SendspinManager(client, audio)
 
+    private val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `lastfm_similar_artists` (
+                    `source_artist` TEXT NOT NULL,
+                    `similar_artist` TEXT NOT NULL,
+                    `match_score` REAL NOT NULL,
+                    `fetched_at` INTEGER NOT NULL,
+                    PRIMARY KEY(`source_artist`, `similar_artist`)
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `artist_genres` (
+                    `artist_uri` TEXT NOT NULL,
+                    `genre_name` TEXT NOT NULL,
+                    PRIMARY KEY(`artist_uri`, `genre_name`),
+                    FOREIGN KEY(`artist_uri`) REFERENCES `artists`(`uri`) ON UPDATE NO ACTION ON DELETE CASCADE,
+                    FOREIGN KEY(`genre_name`) REFERENCES `genres`(`name`) ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+                """.trimIndent()
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_genres_genre_name` ON `artist_genres` (`genre_name`)")
+
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `lastfm_artist_tags` (
+                    `artist_name` TEXT NOT NULL,
+                    `tags` TEXT NOT NULL,
+                    `fetched_at` INTEGER NOT NULL,
+                    PRIMARY KEY(`artist_name`)
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(
@@ -111,7 +155,8 @@ object AppModule {
         context,
         AppDatabase::class.java,
         "massdroid.db"
-    ).addMigrations(MIGRATION_2_3)
+    ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+        .fallbackToDestructiveMigration()
         .build()
 
     @Provides

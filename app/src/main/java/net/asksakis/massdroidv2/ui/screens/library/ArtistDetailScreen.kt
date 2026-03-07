@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -23,7 +24,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.PlayArrow
+import kotlinx.coroutines.launch
 import net.asksakis.massdroidv2.domain.model.Album
 import net.asksakis.massdroidv2.domain.model.MediaType
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
@@ -46,10 +49,17 @@ fun ArtistDetailScreen(
     val artistName by viewModel.artistName.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val blockedArtistUris by viewModel.blockedArtistUris.collectAsStateWithLifecycle()
+    val artistBlocked = artist?.uri?.let { uri ->
+        val key = MediaIdentity.canonicalArtistKey(uri = uri)
+        key != null && key in blockedArtistUris
+    } ?: false
 
     var actionSheetItem by remember { mutableStateOf<ActionSheetItem?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(artistName) },
@@ -59,6 +69,35 @@ fun ArtistDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = {
+                            val willBlock = !artistBlocked
+                            viewModel.toggleArtistBlocked(artist?.uri, artistName)
+                            scope.launch {
+                                snackbarHostState.currentSnackbarData?.dismiss()
+                                snackbarHostState.showSnackbar(
+                                    if (willBlock) "Artist blocked" else "Artist allowed"
+                                )
+                            }
+                        },
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = if (artistBlocked) {
+                                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f)
+                            } else {
+                                Color.Transparent
+                            }
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Block,
+                            contentDescription = if (artistBlocked) "Allow artist again" else "Block artist",
+                            tint = if (artistBlocked) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                    }
                     IconButton(onClick = { viewModel.toggleArtistFavorite() }) {
                         Icon(
                             if (artist?.favorite == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -116,6 +155,14 @@ fun ArtistDetailScreen(
                             text = genres.take(3).joinToString(", "),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (artistBlocked) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Artist blocked",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error
                         )
                     }
                     val parts = mutableListOf<String>()

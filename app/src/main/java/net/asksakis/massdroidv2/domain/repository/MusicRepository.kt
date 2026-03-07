@@ -32,7 +32,8 @@ interface MusicRepository {
         uris: List<String>,
         option: String? = null,
         radioMode: Boolean = false,
-        awaitResponse: Boolean = false
+        awaitResponse: Boolean = false,
+        timeoutMs: Long? = null
     )
     suspend fun addTrackToPlaylist(playlist: Playlist, trackUri: String)
     suspend fun removeTrackFromPlaylist(playlist: Playlist, position: Int)

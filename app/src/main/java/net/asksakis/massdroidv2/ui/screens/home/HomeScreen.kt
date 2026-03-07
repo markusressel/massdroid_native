@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import kotlin.math.absoluteValue
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import net.asksakis.massdroidv2.R
@@ -947,6 +948,7 @@ private fun GenreChip(
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val (bgA, bgB, glow) = remember(genre.name) { genrePalette(genre.name) }
     ElevatedCard(
         shape = MaterialTheme.shapes.medium
     ) {
@@ -954,6 +956,11 @@ private fun GenreChip(
             modifier = Modifier
                 .width(140.dp)
                 .aspectRatio(2f)
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(bgA, bgB)
+                    )
+                )
                 .semantics { contentDescription = genre.name }
                 .clickable(
                     interactionSource = interactionSource,
@@ -962,6 +969,23 @@ private fun GenreChip(
                 ),
             contentAlignment = Alignment.Center
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawWithContent {
+                        drawContent()
+                        drawCircle(
+                            color = glow,
+                            radius = size.minDimension * 0.42f,
+                            center = Offset(size.width * 0.18f, size.height * 0.24f)
+                        )
+                        drawCircle(
+                            color = glow.copy(alpha = glow.alpha * 0.55f),
+                            radius = size.minDimension * 0.34f,
+                            center = Offset(size.width * 0.82f, size.height * 0.78f)
+                        )
+                    }
+            )
             genre.imageUrl?.let { url ->
                 AsyncImage(
                     model = rememberSizedImageModel(
@@ -977,11 +1001,31 @@ private fun GenreChip(
             }
             Text(
                 text = genre.name,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.35f),
+                        blurRadius = 12f
+                    )
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(12.dp)
             )
         }
     }
+}
+
+private fun genrePalette(name: String): Triple<Color, Color, Color> {
+    val palettes = listOf(
+        Triple(Color(0xFF233247), Color(0xFF101722), Color(0x553DB7FF)),
+        Triple(Color(0xFF35273E), Color(0xFF16121B), Color(0x554DA3FF)),
+        Triple(Color(0xFF21383A), Color(0xFF0F1718), Color(0x5540D6C3)),
+        Triple(Color(0xFF40311F), Color(0xFF17120D), Color(0x55FF9F43)),
+        Triple(Color(0xFF2B2B46), Color(0xFF11111C), Color(0x556C8CFF)),
+        Triple(Color(0xFF3A2531), Color(0xFF160E12), Color(0x55FF6FAE))
+    )
+    return palettes[(name.lowercase().hashCode().absoluteValue) % palettes.size]
 }

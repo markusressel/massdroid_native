@@ -42,6 +42,8 @@ class RecommendationEngine @Inject constructor() {
         excludedArtistUris: Set<String> = emptySet(),
         artistSignalScores: Map<String, Double> = emptyMap(),
         artistIdentity: (Artist) -> String = { it.uri },
+        similarArtistScores: Map<String, Double> = emptyMap(),
+        similarArtistUris: Set<String> = emptySet(),
         count: Int = 10
     ): List<Artist> {
         if (genreScores.isEmpty()) return candidates.shuffled().take(count)
@@ -55,14 +57,16 @@ class RecommendationEngine @Inject constructor() {
         }
         if (eligible.isEmpty()) return candidates.shuffled().take(count)
 
-        val genreScoreMap = genreScores.associate { it.genre to it.score }
+        val genreScoreMap = genreScores.associate { it.genre.lowercase() to it.score }
         val topGenreNames = genreScoreMap.keys
 
-        // Score each candidate by sum of their genre affinities + random jitter
+        // Score each candidate by sum of their genre affinities + signal + similar bonus
         val scored = eligible.map { artist ->
-            val affinityScore = artist.genres.sumOf { g -> genreScoreMap[g] ?: 0.0 }
-            val signalBoost = artistSignalScores[artistIdentity(artist)] ?: 0.0
-            ScoredArtist(artist, affinityScore + (signalBoost * 0.5))
+            val key = artistIdentity(artist)
+            val affinityScore = artist.genres.sumOf { g -> genreScoreMap[g.lowercase()] ?: 0.0 }
+            val signalBoost = artistSignalScores[key] ?: 0.0
+            val similarBonus = (similarArtistScores[key] ?: 0.0) * 0.6
+            ScoredArtist(artist, affinityScore + signalBoost * 0.5 + similarBonus)
         }.filter { it.relevance > 0.0 }
 
         val exploitCount = (count * EXPLOIT_RATIO).toInt().coerceAtLeast(1)
@@ -70,19 +74,24 @@ class RecommendationEngine @Inject constructor() {
         val wildcardCount = count - exploitCount - exploreCount
 
         // Exploit: MMR re-ranked top scored (with jitter for variety)
-        val exploitPicks = mmrRerank(scored, ARTIST_LAMBDA, exploitCount) { it.artist.genres.toSet() }
+        val exploitPicks = mmrRerank(scored, ARTIST_LAMBDA, exploitCount) { it.artist.genres.map { g -> g.lowercase() }.toSet() }
         val usedUris = exploitPicks.mapTo(mutableSetOf()) { artistIdentity(it.artist) }
 
-        // Explore: artists from adjacent genres (not in top genres)
+        // Explore: similar artists first, then adjacent genre artists
+        val similarCandidates = if (similarArtistUris.isNotEmpty()) {
+            eligible.filter { artistIdentity(it) in similarArtistUris && artistIdentity(it) !in usedUris }
+        } else {
+            emptyList()
+        }
         val adjacentGenres = topGenreNames.flatMapTo(mutableSetOf()) { g ->
             genreAdjacency[g].orEmpty()
         } - topGenreNames
-        val exploreCandidates = if (adjacentGenres.isNotEmpty()) {
-            eligible.filter { artistIdentity(it) !in usedUris && it.genres.any { g -> g in adjacentGenres } }
+        val adjacentCandidates = if (adjacentGenres.isNotEmpty()) {
+            eligible.filter { artistIdentity(it) !in usedUris && it.genres.any { g -> g.lowercase() in adjacentGenres } }
         } else {
-            // No adjacency data: pick random artists outside top genres for diversity
-            eligible.filter { artistIdentity(it) !in usedUris && it.genres.none { g -> g in topGenreNames } }
+            eligible.filter { artistIdentity(it) !in usedUris && it.genres.none { g -> g.lowercase() in topGenreNames } }
         }
+        val exploreCandidates = (similarCandidates + adjacentCandidates).distinctBy { artistIdentity(it) }
         val explorePicks = exploreCandidates.shuffled().take(exploreCount)
         usedUris.addAll(explorePicks.map { artistIdentity(it) })
 

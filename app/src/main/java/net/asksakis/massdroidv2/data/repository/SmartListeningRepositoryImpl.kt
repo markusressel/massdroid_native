@@ -33,12 +33,12 @@ class SmartListeningRepositoryImpl @Inject constructor(
         private const val MILLIS_PER_DAY = 86_400_000L
         private const val DECAY_DAYS = 60.0
 
-        private const val SKIP_ARTIST_SIGNAL = -0.25
+        private const val SKIP_ARTIST_SIGNAL = -0.50
         private const val LISTEN_ARTIST_SIGNAL = 0.20
         private const val LIKE_ARTIST_SIGNAL = 0.60
         private const val UNLIKE_ARTIST_SIGNAL = -0.70
 
-        private const val SUPPRESS_SCORE_THRESHOLD = -1.8
+        private const val SUPPRESS_SCORE_THRESHOLD = -1.5
         private const val SUPPRESS_NEGATIVE_MIN = 3
     }
 

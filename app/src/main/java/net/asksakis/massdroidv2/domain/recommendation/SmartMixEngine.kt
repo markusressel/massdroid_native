@@ -1,11 +1,14 @@
 package net.asksakis.massdroidv2.domain.recommendation
 
+import android.util.Log
 import net.asksakis.massdroidv2.domain.model.Track
 import net.asksakis.massdroidv2.domain.repository.ArtistScore
 import net.asksakis.massdroidv2.domain.repository.GenreScore
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.random.Random
+
+private const val TAG = "SmartMix"
 
 private const val TOP_ARTISTS_LIMIT = 12
 private const val TOP_GENRES_LIMIT = 4
@@ -33,7 +36,7 @@ class SmartMixEngine @Inject constructor() {
     ): List<String> {
         val random = Random(randomSeed)
         val artistScoreMap = artistScores.associate { it.artistUri to it.score }
-        val topGenres = genreScores.take(TOP_GENRES_LIMIT).map { it.genre }
+        val topGenres = genreScores.take(TOP_GENRES_LIMIT).map { it.genre.lowercase() }
 
         val candidates = linkedSetOf<String>()
         favoriteArtistUris
@@ -69,7 +72,13 @@ class SmartMixEngine @Inject constructor() {
         }
 
         val jitter = candidates.associateWith { random.nextDouble(-ARTIST_RANK_JITTER, ARTIST_RANK_JITTER) }
-        return candidates.sortedByDescending { uri ->
+        Log.d(
+            TAG,
+            "buildArtistOrder: ${candidates.size} candidates " +
+                "(${favoriteArtistUris.size} favorites, ${artistScores.size} BLL, " +
+                "topGenres=${topGenres.joinToString()})"
+        )
+        val sorted = candidates.sortedByDescending { uri ->
             artistCompositeScore(
                 uri = uri,
                 artistScoreMap = artistScoreMap,
@@ -79,6 +88,15 @@ class SmartMixEngine @Inject constructor() {
                 daypartAffinityByArtist = daypartAffinityByArtist
             ) + (jitter[uri] ?: 0.0)
         }
+        sorted.forEachIndexed { i, uri ->
+            val score = artistCompositeScore(
+                uri, artistScoreMap, bllArtistScoreMap, smartArtistScoreMap,
+                favoriteArtistUris, daypartAffinityByArtist
+            )
+            val isFav = if (uri in favoriteArtistUris) " [FAV]" else ""
+            Log.d(TAG, "  artist #${i + 1}: $uri score=${String.format("%.2f", score)}$isFav")
+        }
+        return sorted
     }
 
     fun buildTrackUris(
@@ -93,7 +111,7 @@ class SmartMixEngine @Inject constructor() {
     ): List<String> {
         if (target <= 0 || artistOrder.isEmpty()) return emptyList()
         val random = Random(randomSeed)
-        val genreScoreMap = genreScores.associate { it.genre to it.score }
+        val genreScoreMap = genreScores.associate { it.genre.lowercase() to it.score }
 
         val seenTrackUris = mutableSetOf<String>()
         val byArtistCount = mutableMapOf<String, Int>()
@@ -107,12 +125,16 @@ class SmartMixEngine @Inject constructor() {
                 .asSequence()
                 .filter { it.uri.isNotBlank() && it.uri !in seenTrackUris }
                 .filterNot { track ->
-                    val artistKey = MediaIdentity.canonicalArtistKey(track.artistItemId, track.artistUri)
-                        ?: candidateArtistKey(artistUri)
-                    artistKey in excludedArtistUris
+                    val trackArtistKeys = buildSet {
+                        addAll(track.artistUris)
+                        MediaIdentity.canonicalArtistKey(track.artistItemId, track.artistUri)
+                            ?.let(::add)
+                        add(candidateArtistKey(artistUri))
+                    }
+                    trackArtistKeys.any { it in excludedArtistUris }
                 }
                 .map { track ->
-                    val genreAffinity = track.genres.sumOf { g -> genreScoreMap[g] ?: 0.0 } * 0.6
+                    val genreAffinity = track.genres.sumOf { g -> genreScoreMap[g.lowercase()] ?: 0.0 } * 0.6
                     val favoriteBonus = if (track.favorite) 0.25 else 0.0
                     val trackAlbumKey = MediaIdentity.canonicalAlbumKey(track.albumItemId, track.albumUri)
                     val favoriteAlbumBonus =
@@ -148,8 +170,13 @@ class SmartMixEngine @Inject constructor() {
             .sortedByDescending { it.score }
             .distinctBy { it.track.uri }
 
-        return interleaveByArtist(ordered, limit = target, random = random)
-            .map { it.uri }
+        Log.d(TAG, "buildTrackUris: ${ordered.size} scored tracks from ${tracksByArtist.size} artists, target=$target")
+
+        val interleaved = interleaveByArtist(ordered, limit = target, random = random)
+        interleaved.forEachIndexed { i, track ->
+            Log.d(TAG, "  track #${i + 1}: ${track.artistNames} - ${track.name}")
+        }
+        return interleaved.map { it.uri }
     }
 
     private fun artistCompositeScore(

@@ -8,6 +8,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.Json
 import net.asksakis.massdroidv2.data.database.PlayHistoryDao
+import net.asksakis.massdroidv2.data.lastfm.LastFmGenreResolver
 import net.asksakis.massdroidv2.data.repository.MusicRepositoryImpl
 import net.asksakis.massdroidv2.data.repository.PlayHistoryRepositoryImpl
 import net.asksakis.massdroidv2.data.repository.PlayerRepositoryImpl
@@ -51,13 +52,15 @@ object RepositoryModule {
         json: Json,
         playHistoryRepository: PlayHistoryRepository,
         settingsRepository: SettingsRepository,
-        smartListeningRepository: SmartListeningRepository
+        smartListeningRepository: SmartListeningRepository,
+        lastFmGenreResolver: LastFmGenreResolver
     ): PlayerRepository = PlayerRepositoryImpl(
         wsClient = wsClient,
         json = json,
         playHistoryRepository = playHistoryRepository,
         settingsRepository = settingsRepository,
-        smartListeningRepository = smartListeningRepository
+        smartListeningRepository = smartListeningRepository,
+        lastFmGenreResolver = lastFmGenreResolver
     )
 
     @Provides

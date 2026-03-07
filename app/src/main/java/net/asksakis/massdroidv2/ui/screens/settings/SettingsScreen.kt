@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
@@ -73,6 +74,8 @@ fun SettingsScreen(
     val sendspinState by viewModel.sendspinState.collectAsStateWithLifecycle()
     val sendspinEnabled by viewModel.sendspinEnabled.collectAsStateWithLifecycle()
     val smartListeningEnabled by viewModel.smartListeningEnabled.collectAsStateWithLifecycle()
+    val lastFmApiKey by viewModel.lastFmApiKey.collectAsStateWithLifecycle()
+    val lastFmValidation by viewModel.lastFmValidation.collectAsStateWithLifecycle()
     val updateUiState by viewModel.updateUiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -413,6 +416,91 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("Last.fm Genre Enrichment", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Enrich genre data using Last.fm. Get your API key from last.fm/api",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    var apiKeyInput by remember(lastFmApiKey) { mutableStateOf(lastFmApiKey) }
+                    var apiKeyVisible by remember { mutableStateOf(false) }
+                    val isValidating = lastFmValidation is LastFmValidation.Validating
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = {
+                            apiKeyInput = it
+                            viewModel.clearLastFmValidation()
+                        },
+                        label = { Text("API Key") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = if (apiKeyVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            Row {
+                                if (apiKeyInput.isNotBlank()) {
+                                    IconButton(onClick = {
+                                        apiKeyInput = ""
+                                        viewModel.clearLastFmApiKey()
+                                    }) {
+                                        Icon(Icons.Filled.Close, contentDescription = "Clear")
+                                    }
+                                }
+                                IconButton(onClick = { apiKeyVisible = !apiKeyVisible }) {
+                                    Icon(
+                                        if (apiKeyVisible) Icons.Filled.VisibilityOff
+                                        else Icons.Filled.Visibility,
+                                        contentDescription = null
+                                    )
+                                }
+                            }
+                        },
+                        isError = lastFmValidation is LastFmValidation.Invalid,
+                        supportingText = when (lastFmValidation) {
+                            is LastFmValidation.Valid -> {
+                                { Text("API key verified", color = MaterialTheme.colorScheme.primary) }
+                            }
+                            is LastFmValidation.Invalid -> {
+                                { Text("Invalid API key") }
+                            }
+                            else -> null
+                        }
+                    )
+                    Button(
+                        onClick = { viewModel.setLastFmApiKey(apiKeyInput) },
+                        enabled = apiKeyInput.trim() != lastFmApiKey
+                            && apiKeyInput.isNotBlank()
+                            && !isValidating
+                    ) {
+                        if (isValidating) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Validating...")
+                        } else {
+                            Text("Save")
+                        }
                     }
                 }
             }

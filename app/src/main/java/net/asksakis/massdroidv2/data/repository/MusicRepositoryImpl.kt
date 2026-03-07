@@ -158,12 +158,14 @@ class MusicRepositoryImpl @Inject constructor(
         uris: List<String>,
         option: String?,
         radioMode: Boolean,
-        awaitResponse: Boolean
+        awaitResponse: Boolean,
+        timeoutMs: Long?
     ) {
         wsClient.sendCommand(
             MaCommands.PlayerQueues.PLAY_MEDIA,
             PlayMediaArgs(queueId = queueId, mediaUris = uris, option = option, radioMode = radioMode),
-            awaitResponse = awaitResponse
+            awaitResponse = awaitResponse,
+            timeoutMs = timeoutMs ?: 30_000
         )
     }
 
@@ -454,6 +456,12 @@ class MusicRepositoryImpl @Inject constructor(
                 itemId = artists?.firstOrNull()?.itemId,
                 uri = artists?.firstOrNull()?.uri
             ),
+            artistUris = artists
+                ?.mapNotNull { artist ->
+                    MediaIdentity.canonicalArtistKey(itemId = artist.itemId, uri = artist.uri)
+                }
+                ?.distinct()
+                ?: emptyList(),
             albumUri = MediaIdentity.canonicalAlbumKey(
                 itemId = album?.itemId,
                 uri = album?.uri
