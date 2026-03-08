@@ -10,9 +10,18 @@ MassDroid lets you control your Music Assistant players, browse your library, ma
   <img src="screenshots/home.png" width="180" />&nbsp;&nbsp;
   <img src="screenshots/nowplaying.png" width="180" />&nbsp;&nbsp;
   <img src="screenshots/library.png" width="180" />
+  <br/>
+  <sub>Discover Home &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Now Playing &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Library</sub>
   <br/><br/>
-  <img src="screenshots/artist_detail.png" width="180" />&nbsp;&nbsp;
-  <img src="screenshots/player_settings.png" width="180" />
+  <img src="screenshots/players.png" width="180" />&nbsp;&nbsp;
+  <img src="screenshots/queue.png" width="180" />&nbsp;&nbsp;
+  <img src="screenshots/recommendation_insights.png" width="180" />
+  <br/>
+  <sub>Players &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Queue &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Smart Listening</sub>
+  <br/><br/>
+  <img src="screenshots/connection_status.png" width="180" />
+  <br/>
+  <sub>Connection Diagnostics</sub>
 </p>
 
 ## Smart Mix & Recommendation Engine
