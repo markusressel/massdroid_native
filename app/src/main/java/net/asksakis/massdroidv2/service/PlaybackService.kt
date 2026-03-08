@@ -11,6 +11,7 @@ import android.os.Looper
 import android.util.Log
 import java.io.ByteArrayOutputStream
 import androidx.annotation.OptIn
+import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -29,7 +30,10 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.future
 import net.asksakis.massdroidv2.data.sendspin.SendspinManager
+import net.asksakis.massdroidv2.data.websocket.MaCommands
 import net.asksakis.massdroidv2.data.websocket.MaWebSocketClient
+import net.asksakis.massdroidv2.data.websocket.VolumeSetArgs
+import net.asksakis.massdroidv2.data.websocket.sendCommand
 import net.asksakis.massdroidv2.domain.model.*
 import net.asksakis.massdroidv2.domain.model.PlaybackState
 import net.asksakis.massdroidv2.domain.repository.MusicRepository
@@ -46,6 +50,8 @@ class PlaybackService : MediaLibraryService() {
     companion object {
         private const val TAG = "PlaybackSvc"
         private const val PAGE_SIZE_DEFAULT = 50
+        private const val VOLUME_STEP = RemoteControlPlayer.VOLUME_SCALE
+        private const val VOLUME_OVERRIDE_MS = 15_000L
     }
 
     @Inject lateinit var playerRepository: PlayerRepository
@@ -61,6 +67,8 @@ class PlaybackService : MediaLibraryService() {
     private var cachedSearchResults: SearchResult? = null
     private var cachedArtworkUrl: String? = null
     @Volatile private var cachedArtworkData: ByteArray? = null
+    private var optimisticVolume: Int? = null
+    private var volumeOverrideUntil: Long = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -81,6 +89,20 @@ class PlaybackService : MediaLibraryService() {
 
     private fun activePlayerId(): String? {
         return playerRepository.selectedPlayer.value?.playerId
+    }
+
+    private fun sendVolumeCommand(playerId: String, volume: Int) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                wsClient.sendCommand(
+                    MaCommands.Players.CMD_VOLUME_SET,
+                    VolumeSetArgs(playerId = playerId, volumeLevel = volume),
+                    awaitResponse = false
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Volume command failed: $e")
+            }
+        }
     }
 
     private fun createRemotePlayer(): RemoteControlPlayer {
@@ -107,6 +129,40 @@ class PlaybackService : MediaLibraryService() {
             onSeek = { positionMs ->
                 val id = activePlayerId() ?: return@RemoteControlPlayer
                 scope.launch { playerRepository.seek(id, positionMs / 1000.0) }
+            },
+            onVolumeUp = {
+                val player = playerRepository.selectedPlayer.value ?: return@RemoteControlPlayer
+                val baseVol = if (System.currentTimeMillis() < volumeOverrideUntil) {
+                    optimisticVolume ?: player.volumeLevel
+                } else {
+                    player.volumeLevel
+                }
+                val newVol = (baseVol + VOLUME_STEP).coerceAtMost(RemoteControlPlayer.MAX_VOLUME)
+                optimisticVolume = newVol
+                volumeOverrideUntil = System.currentTimeMillis() + VOLUME_OVERRIDE_MS
+                remotePlayer?.updateVolume(newVol)
+                sendVolumeCommand(player.playerId, newVol)
+            },
+            onVolumeDown = {
+                val player = playerRepository.selectedPlayer.value ?: return@RemoteControlPlayer
+                val baseVol = if (System.currentTimeMillis() < volumeOverrideUntil) {
+                    optimisticVolume ?: player.volumeLevel
+                } else {
+                    player.volumeLevel
+                }
+                val newVol = (baseVol - VOLUME_STEP).coerceAtLeast(0)
+                optimisticVolume = newVol
+                volumeOverrideUntil = System.currentTimeMillis() + VOLUME_OVERRIDE_MS
+                remotePlayer?.updateVolume(newVol)
+                sendVolumeCommand(player.playerId, newVol)
+            },
+            onVolumeSet = { volume ->
+                val player = playerRepository.selectedPlayer.value ?: return@RemoteControlPlayer
+                val clamped = volume.coerceIn(0, RemoteControlPlayer.MAX_VOLUME)
+                optimisticVolume = clamped
+                volumeOverrideUntil = System.currentTimeMillis() + VOLUME_OVERRIDE_MS
+                remotePlayer?.updateVolume(clamped)
+                sendVolumeCommand(player.playerId, clamped)
             }
         )
     }
@@ -152,6 +208,24 @@ class PlaybackService : MediaLibraryService() {
 
                 updateArtwork(imageUrl)
 
+                val isSendspinPlayer = sendspinPlayerId != null &&
+                    player.playerId == sendspinPlayerId
+
+                val effectiveVolume = if (optimisticVolume != null) {
+                    if (player.volumeLevel == optimisticVolume) {
+                        optimisticVolume = null
+                        volumeOverrideUntil = 0
+                        player.volumeLevel
+                    } else if (System.currentTimeMillis() > volumeOverrideUntil) {
+                        optimisticVolume = null
+                        player.volumeLevel
+                    } else {
+                        optimisticVolume!!
+                    }
+                } else {
+                    player.volumeLevel
+                }
+
                 remotePlayer?.updateState(
                     isPlaying = player.state == PlaybackState.PLAYING,
                     title = title,
@@ -159,7 +233,10 @@ class PlaybackService : MediaLibraryService() {
                     album = album,
                     durationMs = (duration * 1000).toLong(),
                     positionMs = (elapsed * 1000).toLong(),
-                    artworkData = cachedArtworkData
+                    artworkData = cachedArtworkData,
+                    volumeLevel = effectiveVolume,
+                    isMuted = player.volumeMuted,
+                    isRemotePlayback = !isSendspinPlayer
                 )
             }
         }
@@ -663,7 +740,10 @@ class RemoteControlPlayer(
     private val onPause: () -> Unit,
     private val onNext: () -> Unit,
     private val onPrevious: () -> Unit,
-    private val onSeek: (Long) -> Unit
+    private val onSeek: (Long) -> Unit,
+    private val onVolumeUp: () -> Unit = {},
+    private val onVolumeDown: () -> Unit = {},
+    private val onVolumeSet: (Int) -> Unit = {}
 ) : SimpleBasePlayer(looper) {
 
     private var _isPlaying = false
@@ -674,6 +754,9 @@ class RemoteControlPlayer(
     private var _positionMs = 0L
     private var _artworkData: ByteArray? = null
     private var _queueEntries: List<QueueEntry> = emptyList()
+    private var _volumeLevel = 0
+    private var _isMuted = false
+    private var _isRemotePlayback = false
 
     fun updateState(
         isPlaying: Boolean,
@@ -682,7 +765,10 @@ class RemoteControlPlayer(
         album: String,
         durationMs: Long,
         positionMs: Long,
-        artworkData: ByteArray? = null
+        artworkData: ByteArray? = null,
+        volumeLevel: Int = _volumeLevel,
+        isMuted: Boolean = _isMuted,
+        isRemotePlayback: Boolean = _isRemotePlayback
     ) {
         _isPlaying = isPlaying
         _title = title
@@ -691,6 +777,14 @@ class RemoteControlPlayer(
         _durationMs = durationMs
         _positionMs = positionMs
         if (artworkData != null) _artworkData = artworkData
+        _volumeLevel = volumeLevel
+        _isMuted = isMuted
+        _isRemotePlayback = isRemotePlayback
+        invalidateState()
+    }
+
+    fun updateVolume(volume: Int) {
+        _volumeLevel = volume
         invalidateState()
     }
 
@@ -742,25 +836,40 @@ class RemoteControlPlayer(
             ImmutableList.of()
         }
 
-        return State.Builder()
-            .setAvailableCommands(
-                Player.Commands.Builder()
-                    .addAll(
-                        COMMAND_PLAY_PAUSE,
-                        COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                        COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
-                        COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
-                        COMMAND_GET_METADATA,
-                        COMMAND_GET_CURRENT_MEDIA_ITEM,
-                        COMMAND_GET_TIMELINE
-                    )
-                    .build()
+        val playbackType = if (_isRemotePlayback) {
+            DeviceInfo.PLAYBACK_TYPE_REMOTE
+        } else {
+            DeviceInfo.PLAYBACK_TYPE_LOCAL
+        }
+
+        val commandsBuilder = Player.Commands.Builder()
+            .addAll(
+                COMMAND_PLAY_PAUSE,
+                COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                COMMAND_GET_METADATA,
+                COMMAND_GET_CURRENT_MEDIA_ITEM,
+                COMMAND_GET_TIMELINE
             )
+        if (_isRemotePlayback) {
+            commandsBuilder.addAll(
+                COMMAND_GET_DEVICE_VOLUME,
+                COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS,
+                COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS
+            )
+        }
+
+        return State.Builder()
+            .setAvailableCommands(commandsBuilder.build())
             .setPlayWhenReady(_isPlaying, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
             .setPlaybackState(if (_title.isNotEmpty()) STATE_READY else STATE_IDLE)
             .setContentPositionMs(if (_positionMs > 0) _positionMs else 0)
             .setPlaylist(playlist)
             .setCurrentMediaItemIndex(0)
+            .setDeviceInfo(DeviceInfo.Builder(playbackType).setMinVolume(0).setMaxVolume(20).build())
+            .setDeviceVolume(_volumeLevel / VOLUME_SCALE)
+            .setIsDeviceMuted(_isMuted)
             .build()
     }
 
@@ -782,7 +891,25 @@ class RemoteControlPlayer(
         return Futures.immediateVoidFuture()
     }
 
+    override fun handleIncreaseDeviceVolume(flags: Int): ListenableFuture<*> {
+        onVolumeUp()
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleDecreaseDeviceVolume(flags: Int): ListenableFuture<*> {
+        onVolumeDown()
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleSetDeviceVolume(volume: Int, flags: Int): ListenableFuture<*> {
+        val maVolume = (volume * VOLUME_SCALE).coerceIn(0, MAX_VOLUME)
+        onVolumeSet(maVolume)
+        return Futures.immediateVoidFuture()
+    }
+
     companion object {
         private const val C_TIME_UNSET = Long.MIN_VALUE + 1
+        internal const val VOLUME_SCALE = 5
+        internal const val MAX_VOLUME = 100
     }
 }
