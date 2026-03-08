@@ -60,27 +60,29 @@ When Sendspin is enabled, the phone registers as a Music Assistant player. Audio
 - Android 8.0+ (API 26)
 - A running [Music Assistant](https://music-assistant.io/) server (v2.x)
 
-## Building
+## Configuration
 
-```bash
-# Debug build
-./gradlew assembleDebug
-
-# Release build
-./gradlew assembleRelease
-
-# Run static analysis
-./gradlew detekt
-```
-
-## Connecting
+### Server connection
 
 1. Open MassDroid and go to **Settings**
 2. Enter your Music Assistant server URL (e.g. `http://192.168.1.100:8095`)
 3. Log in with your Music Assistant credentials
 4. Your players will appear on the Home screen
 
-For remote access, you can configure mTLS with a client certificate in Settings.
+For remote access with mTLS, install a client certificate on your device and select it in Settings. The app will use it for both WebSocket and image connections.
+
+### Last.fm API key (optional)
+
+Genre data from music providers is often incomplete or missing entirely. Some providers return no genres at all, which limits the quality of Smart Mix, Genre Radio, and recommendations.
+
+To fill the gaps, MassDroid can use the [Last.fm](https://www.last.fm/api) API as a fallback source for artist genre tags. When enabled, the app queries Last.fm only when Music Assistant has no genre data for an artist. Results are cached locally for 30 days.
+
+To set it up:
+
+1. Create a free [Last.fm API account](https://www.last.fm/api/account/create) and get your API key
+2. Go to **Settings** in MassDroid and enter the key in the **Last.fm API Key** field
+
+This is entirely optional. Without it, the app still works, but genre-based features will only have data from whatever your music providers supply.
 
 ## License
 
