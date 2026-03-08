@@ -1,10 +1,13 @@
 package net.asksakis.massdroidv2
 
 import android.app.Application
+import android.content.ComponentName
 import android.content.Intent
 import android.security.KeyChain
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import dagger.hilt.android.HiltAndroidApp
@@ -15,6 +18,7 @@ import net.asksakis.massdroidv2.data.update.AppUpdateChecker
 import net.asksakis.massdroidv2.data.websocket.MaWebSocketClient
 import net.asksakis.massdroidv2.domain.repository.PlayHistoryRepository
 import net.asksakis.massdroidv2.domain.repository.SettingsRepository
+import net.asksakis.massdroidv2.service.PlaybackService
 import net.asksakis.massdroidv2.service.SendspinService
 import javax.inject.Inject
 
@@ -81,6 +85,9 @@ class MassDroidApp : Application(), ImageLoaderFactory {
             }
         }
 
+        // Connect to PlaybackService for media notification (remote control mode)
+        connectPlaybackService()
+
         // Observe connection state: save token on connect, clear on auth failure, auto-start Sendspin
         appScope.launch {
             wsClient.connectionState.collect { state ->
@@ -110,6 +117,22 @@ class MassDroidApp : Application(), ImageLoaderFactory {
                     }
                     else -> {}
                 }
+            }
+        }
+    }
+
+    private fun connectPlaybackService() {
+        appScope.launch(Dispatchers.Main) {
+            try {
+                val sessionToken = SessionToken(
+                    this@MassDroidApp,
+                    ComponentName(this@MassDroidApp, PlaybackService::class.java)
+                )
+                MediaController.Builder(this@MassDroidApp, sessionToken)
+                    .buildAsync()
+                Log.d("MassDroidApp", "PlaybackService controller connected")
+            } catch (e: Exception) {
+                Log.e("MassDroidApp", "PlaybackService connect failed: ${e.message}")
             }
         }
     }

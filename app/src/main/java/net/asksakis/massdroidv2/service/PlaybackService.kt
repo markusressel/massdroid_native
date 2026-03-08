@@ -2,6 +2,8 @@ package net.asksakis.massdroidv2.service
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Build
+import android.view.KeyEvent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -24,9 +26,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.guava.future
 import net.asksakis.massdroidv2.data.sendspin.SendspinManager
 import net.asksakis.massdroidv2.data.websocket.MaWebSocketClient
@@ -57,7 +57,6 @@ class PlaybackService : MediaLibraryService() {
     private var mediaLibrarySession: MediaLibrarySession? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var remotePlayer: RemoteControlPlayer? = null
-    private var sendspinActive = false
     private var sendspinPlayerId: String? = null
     private var cachedSearchResults: SearchResult? = null
     private var cachedArtworkUrl: String? = null
@@ -67,31 +66,34 @@ class PlaybackService : MediaLibraryService() {
         super.onCreate()
         remotePlayer = createRemotePlayer()
         createMediaSession()
+        loadSendspinPlayerId()
         observePlayerState()
         observeQueueItems()
-        observeSendspinState()
-        observeSendspinPlayerState()
-        loadSendspinPlayerId()
+    }
+
+    private fun loadSendspinPlayerId() {
+        scope.launch {
+            settingsRepository.sendspinClientId.collect { id ->
+                sendspinPlayerId = id
+            }
+        }
     }
 
     private fun activePlayerId(): String? {
-        return if (sendspinActive) sendspinPlayerId
-        else playerRepository.selectedPlayer.value?.playerId
+        return playerRepository.selectedPlayer.value?.playerId
     }
 
     private fun createRemotePlayer(): RemoteControlPlayer {
         return RemoteControlPlayer(
             Looper.getMainLooper(),
             onPlay = {
-                Log.d(TAG, "RemotePlayer onPlay (sendspin=$sendspinActive)")
+                Log.d(TAG, "RemotePlayer onPlay")
                 val id = activePlayerId() ?: return@RemoteControlPlayer
-                if (sendspinActive) sendspinManager.resumeAudio()
                 scope.launch { playerRepository.play(id) }
             },
             onPause = {
-                Log.d(TAG, "RemotePlayer onPause (sendspin=$sendspinActive)")
+                Log.d(TAG, "RemotePlayer onPause")
                 val id = activePlayerId() ?: return@RemoteControlPlayer
-                if (sendspinActive) sendspinManager.pauseAudio()
                 scope.launch { playerRepository.pause(id) }
             },
             onNext = {
@@ -122,13 +124,7 @@ class PlaybackService : MediaLibraryService() {
         Log.d(TAG, "MediaLibrarySession created")
     }
 
-    private fun loadSendspinPlayerId() {
-        scope.launch {
-            sendspinPlayerId = settingsRepository.sendspinClientId.first()
-        }
-    }
-
-    /** Observe selected player state (when sendspin is NOT active). */
+    /** Observe selected player state for media notification. */
     private fun observePlayerState() {
         scope.launch {
             combine(
@@ -138,7 +134,7 @@ class PlaybackService : MediaLibraryService() {
             ) { player, queue, elapsed ->
                 Triple(player, queue, elapsed)
             }.collect { (player, queue, elapsed) ->
-                if (player == null || sendspinActive) return@collect
+                if (player == null) return@collect
 
                 val currentTrack = queue?.currentItem?.track
                 val title = currentTrack?.name ?: player.currentMedia?.title ?: ""
@@ -171,23 +167,10 @@ class PlaybackService : MediaLibraryService() {
 
     /** Fetch full queue items when queue changes (for car display queue list). */
     private fun observeQueueItems() {
-        // Selected player queue changes (non-sendspin)
         scope.launch {
             playerRepository.queueItemsChanged.collect { queueId ->
-                if (!sendspinActive) fetchQueueItems(queueId)
+                fetchQueueItems(queueId)
             }
-        }
-        // Sendspin player: fetch queue when track changes
-        scope.launch {
-            playerRepository.players
-                .map { list -> list.find { it.playerId == sendspinPlayerId }?.currentMedia?.uri }
-                .distinctUntilChanged()
-                .collect { uri ->
-                    val ssId = sendspinPlayerId
-                    if (sendspinActive && ssId != null && uri != null) {
-                        fetchQueueItems(ssId)
-                    }
-                }
         }
     }
 
@@ -211,32 +194,6 @@ class PlaybackService : MediaLibraryService() {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load queue items for $queueId", e)
             }
-        }
-    }
-
-    /** Observe sendspin player state from the players list (when sendspin IS active). */
-    private fun observeSendspinPlayerState() {
-        scope.launch {
-            playerRepository.players
-                .map { list -> list.find { it.playerId == sendspinPlayerId } }
-                .distinctUntilChanged()
-                .collect { player ->
-                    if (!sendspinActive || player == null) return@collect
-                    val media = player.currentMedia ?: return@collect
-
-                    val imageUrl = media.imageUrl
-                    updateArtwork(imageUrl)
-
-                    remotePlayer?.updateState(
-                        isPlaying = player.state == PlaybackState.PLAYING,
-                        title = media.title,
-                        artist = media.artist,
-                        album = media.album,
-                        durationMs = (media.duration * 1000).toLong(),
-                        positionMs = (media.elapsedTime * 1000).toLong(),
-                        artworkData = cachedArtworkData
-                    )
-                }
         }
     }
 
@@ -308,16 +265,6 @@ class PlaybackService : MediaLibraryService() {
         return out.toByteArray()
     }
 
-    /** Track sendspin state without releasing the session. */
-    private fun observeSendspinState() {
-        scope.launch {
-            sendspinManager.enabled.collect { active ->
-                sendspinActive = active
-                Log.d(TAG, "Sendspin active=$active")
-            }
-        }
-    }
-
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
         return mediaLibrarySession
     }
@@ -335,6 +282,60 @@ class PlaybackService : MediaLibraryService() {
     // region Browse / Search callbacks
 
     private val libraryCallback = object : MediaLibrarySession.Callback {
+
+        @OptIn(UnstableApi::class)
+        override fun onMediaButtonEvent(
+            session: MediaSession,
+            controllerInfo: MediaSession.ControllerInfo,
+            intent: Intent
+        ): Boolean {
+            // Notification buttons -> normal flow (controls selected player)
+            if (session.isMediaNotificationController(controllerInfo)) return false
+
+            // BT/hardware buttons: route to sendspin when enabled
+            val ssId = sendspinPlayerId ?: return false
+            if (!sendspinManager.enabled.value) return false
+
+            val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
+            } ?: return false
+            if (keyEvent.action != KeyEvent.ACTION_DOWN) return true
+
+            when (keyEvent.keyCode) {
+                KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                    sendspinManager.resumeAudio()
+                    scope.launch { playerRepository.play(ssId) }
+                }
+                KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                    sendspinManager.pauseAudio()
+                    scope.launch { playerRepository.pause(ssId) }
+                }
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> {
+                    val isPlaying = playerRepository.players.value
+                        .firstOrNull { it.playerId == ssId }
+                        ?.state == PlaybackState.PLAYING
+                    if (isPlaying) {
+                        sendspinManager.pauseAudio()
+                        scope.launch { playerRepository.pause(ssId) }
+                    } else {
+                        sendspinManager.resumeAudio()
+                        scope.launch { playerRepository.play(ssId) }
+                    }
+                }
+                KeyEvent.KEYCODE_MEDIA_NEXT -> {
+                    scope.launch { playerRepository.next(ssId) }
+                }
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+                    scope.launch { playerRepository.previous(ssId) }
+                }
+                else -> return false
+            }
+            Log.d(TAG, "BT media button routed to sendspin: ${keyEvent.keyCode}")
+            return true
+        }
 
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,

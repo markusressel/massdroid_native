@@ -312,6 +312,7 @@ class SendspinService : Service() {
                 override fun onPlay() {
                     Log.d(TAG, "MediaSession onPlay")
                     val id = sendspinPlayerId ?: return
+                    playerRepository.selectPlayer(id)
                     currentIsPlaying = true
                     lastPlayingAtMs = System.currentTimeMillis()
                     optimisticUntil = System.currentTimeMillis() + 1000
@@ -952,6 +953,20 @@ class SendspinService : Service() {
                 Intent(this, SendspinService::class.java).apply { this.action = action },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
+
+        // Minimal notification when not actively streaming/syncing
+        if (!isSendspinReady) {
+            return NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("MassDroid Speaker")
+                .setContentText(currentTitle.ifEmpty { "Starting..." })
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentIntent(contentIntent)
+                .setOngoing(true)
+                .setSilent(true)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
+                .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
+                .build()
+        }
 
         val session = mediaSession ?: return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("MassDroid Speaker")
