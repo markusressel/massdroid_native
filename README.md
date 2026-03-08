@@ -6,24 +6,23 @@ MassDroid lets you control your Music Assistant players, browse your library, ma
 
 ## Screenshots
 
-<p align="center">
-  <img src="screenshots/home.png" width="180" />&nbsp;&nbsp;
-  <img src="screenshots/nowplaying.png" width="180" />&nbsp;&nbsp;
-  <img src="screenshots/library.png" width="180" />
-  <br/>
-  <sub>Discover Home &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Now Playing &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Library</sub>
-  <br/><br/>
-  <img src="screenshots/players.png" width="180" />&nbsp;&nbsp;
-  <img src="screenshots/queue.png" width="180" />&nbsp;&nbsp;
-  <img src="screenshots/recommendation_insights.png" width="180" />
-  <br/>
-  <sub>Players &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Queue &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Smart Listening</sub>
-  <br/><br/>
-  <img src="screenshots/artist_detail.png" width="180" />&nbsp;&nbsp;
-  <img src="screenshots/connection_status.png" width="180" />
-  <br/>
-  <sub>Artist Detail &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Connection Diagnostics</sub>
-</p>
+<table align="center">
+  <tr>
+    <td align="center"><img src="screenshots/home.png" width="180" /><br/><sub>Discover Home</sub></td>
+    <td align="center"><img src="screenshots/nowplaying.png" width="180" /><br/><sub>Now Playing</sub></td>
+    <td align="center"><img src="screenshots/library.png" width="180" /><br/><sub>Library</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/players.png" width="180" /><br/><sub>Players</sub></td>
+    <td align="center"><img src="screenshots/queue.png" width="180" /><br/><sub>Queue</sub></td>
+    <td align="center"><img src="screenshots/recommendation_insights.png" width="180" /><br/><sub>Smart Listening</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/artist_detail.png" width="180" /><br/><sub>Artist Detail</sub></td>
+    <td align="center"><img src="screenshots/connection_status.png" width="180" /><br/><sub>Connection Diagnostics</sub></td>
+    <td></td>
+  </tr>
+</table>
 
 ## Smart Mix & Recommendation Engine
 
