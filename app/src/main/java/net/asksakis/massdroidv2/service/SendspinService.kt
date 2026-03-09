@@ -358,7 +358,8 @@ class SendspinService : Service() {
                     }
                 }
             })
-            isActive = true
+            // Do not activate until sendspin is ready (prevents watch/media controller showing stale state)
+            isActive = false
         }
     }
 
@@ -412,13 +413,19 @@ class SendspinService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
+        // Immediately start sendspin connection
+        scope.launch { ensureSendspinConnected() }
+
         // Observe connection state
         collectorJobs += scope.launch {
             sendspinManager.connectionState.collect { state ->
                 val wasStreaming = isStreaming
                 isStreaming = state == SendspinState.STREAMING
+                val wasReady = isSendspinReady
                 isSendspinReady = state == SendspinState.SYNCING || state == SendspinState.STREAMING
                 Log.d(TAG, "Sendspin state: $state, isStreaming=$isStreaming, isSendspinReady=$isSendspinReady")
+                // Deactivate media session when no longer ready
+                if (!isSendspinReady && wasReady) mediaSession?.isActive = false
                 // Track if sendspin dropped while actively streaming (for auto-resume)
                 if (wasStreaming && !isStreaming) {
                     val sendspinWasPlaying = playerRepository.players.value
@@ -447,22 +454,17 @@ class SendspinService : Service() {
                     if (outsideOptimistic) currentIsPlaying = false
                     updateMediaSession()
                     updateNotification()
+                } else if (!wasStreaming && state == SendspinState.SYNCING) {
+                    // Connected, waiting for stream. Don't activate MediaSession yet
+                    // (no real track metadata), just update notification.
+                    updateNotification()
                 } else if (!isStreaming && state != SendspinState.SYNCING) {
                     if (outsideOptimistic) currentIsPlaying = false
-                    currentTitle = when (state) {
-                        SendspinState.STREAMING -> ""
-                        SendspinState.SYNCING -> "Ready"
-                        SendspinState.HANDSHAKING,
-                        SendspinState.AUTHENTICATING,
-                        SendspinState.CONNECTING -> "Connecting..."
-                        SendspinState.ERROR -> "Connection error"
-                        SendspinState.DISCONNECTED -> "Disconnected"
-                    }
+                    currentTitle = ""
                     currentArtist = ""
                     currentAlbum = ""
                     currentDurationMs = 0
                     currentPositionMs = 0
-                    updateMediaSession()
                     updateNotification()
                 }
             }
@@ -519,6 +521,10 @@ class SendspinService : Service() {
                     currentPositionMs = ((media?.elapsedTime ?: 0.0) * 1000).toLong()
 
                     updateMediaSession()
+                    // Activate media session once we have real track metadata
+                    if (mediaSession?.isActive != true && isSendspinReady) {
+                        mediaSession?.isActive = true
+                    }
 
                     if (metadataChanged || artChanged) {
                         updateNotification()
@@ -954,17 +960,16 @@ class SendspinService : Service() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
 
-        // Minimal notification when not actively streaming/syncing
+        // Hidden notification while connecting (required by foreground service)
         if (!isSendspinReady) {
             return NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("MassDroid Speaker")
-                .setContentText(currentTitle.ifEmpty { "Starting..." })
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentIntent(contentIntent)
-                .setOngoing(true)
                 .setSilent(true)
                 .setPriority(NotificationCompat.PRIORITY_MIN)
                 .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
+                .setVisibility(NotificationCompat.VISIBILITY_SECRET)
                 .build()
         }
 

@@ -156,14 +156,11 @@ class MaWebSocketClient(
         webSocket?.close(1000, null)
         webSocket = null
 
-        // Validate: HTTP only allowed for private/local network hosts
+        // Warn about HTTP on non-private networks
         if (url.startsWith("http://", ignoreCase = true)) {
             val host = try { java.net.URI(url).host } catch (_: Exception) { null }
             if (host != null && !isPrivateHost(host)) {
-                _connectionState.value = ConnectionState.Error(
-                    "HTTP is only allowed for local network addresses. Use HTTPS for remote servers."
-                )
-                return
+                Log.w(TAG, "Using insecure HTTP for non-local host: $host. Consider HTTPS.")
             }
         }
 
