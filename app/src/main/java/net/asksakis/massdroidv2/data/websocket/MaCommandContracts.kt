@@ -65,6 +65,10 @@ object MaCommands {
         fun cmd(command: String): String = "$CMD_PREFIX/$command"
     }
 
+    object Metadata {
+        const val GET_TRACK_LYRICS = "metadata/get_track_lyrics"
+    }
+
     object ConfigPlayers {
         const val GET = "config/players/get"
         const val SAVE = "config/players/save"

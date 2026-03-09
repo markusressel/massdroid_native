@@ -75,6 +75,7 @@ interface PlayHistoryRepository {
     suspend fun getPlaysForTimeAnalysis(days: Int = 30): List<Long>
     suspend fun getCachedArtistTracks(artistUri: String, maxAgeMs: Long): List<Track>?
     suspend fun cacheArtistTracks(artistUri: String, tracks: List<Track>)
+    suspend fun searchArtistUrisByGenre(query: String, limit: Int = 30): List<String>
     suspend fun cleanup(retentionMonths: Int = 6)
     suspend fun clearRecommendationData()
 }

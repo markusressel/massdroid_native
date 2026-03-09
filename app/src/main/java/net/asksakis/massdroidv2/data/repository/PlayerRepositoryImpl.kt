@@ -9,6 +9,7 @@ import net.asksakis.massdroidv2.data.websocket.*
 import net.asksakis.massdroidv2.domain.model.*
 import net.asksakis.massdroidv2.data.lastfm.LastFmGenreResolver
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
+import net.asksakis.massdroidv2.domain.recommendation.normalizeGenre
 import net.asksakis.massdroidv2.domain.repository.PlayHistoryRepository
 import net.asksakis.massdroidv2.domain.repository.PlayerRepository
 import net.asksakis.massdroidv2.domain.repository.SettingsRepository
@@ -366,22 +367,24 @@ class PlayerRepositoryImpl @Inject constructor(
         track: Track,
         artists: List<Pair<String, String>>
     ): Track {
-        val mergedGenres = LinkedHashSet<String>()
-        mergedGenres.addAll(normalizeGenres(track.genres))
-        artists.forEach { (artistUri, _) ->
-            artistGenreCache[artistUri]?.let { mergedGenres.addAll(normalizeGenres(it)) }
-        }
-        if (mergedGenres.isNotEmpty()) {
-            return track.copy(genres = mergedGenres.toList())
-        }
-
-        // Try Last.fm first (better genre data when API key is configured)
+        // Always try Last.fm first (curated whitelist, more accurate than raw provider tags)
+        val lastFmGenres = LinkedHashSet<String>()
         artists.forEach { (_, name) ->
             val tags = lastFmGenreResolver.resolve(name)
             if (tags.isNotEmpty()) {
                 Log.d(TAG, "History genres from Last.fm '$name': $tags")
-                mergedGenres.addAll(tags)
+                lastFmGenres.addAll(tags)
             }
+        }
+        if (lastFmGenres.isNotEmpty()) {
+            return track.copy(genres = lastFmGenres.toList())
+        }
+
+        // Fall back to MA provider genres + artist cache
+        val mergedGenres = LinkedHashSet<String>()
+        mergedGenres.addAll(normalizeGenres(track.genres))
+        artists.forEach { (artistUri, _) ->
+            artistGenreCache[artistUri]?.let { mergedGenres.addAll(normalizeGenres(it)) }
         }
         if (mergedGenres.isNotEmpty()) {
             return track.copy(genres = mergedGenres.toList())
@@ -519,7 +522,7 @@ class PlayerRepositoryImpl @Inject constructor(
         genres.forEach { raw ->
             val value = raw.trim()
             if (value.isEmpty()) return@forEach
-            val key = value.lowercase()
+            val key = normalizeGenre(value)
             if (seen.add(key)) {
                 result.add(key)
             }

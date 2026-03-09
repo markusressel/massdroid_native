@@ -44,6 +44,13 @@ interface PlayHistoryDao {
     @Query("SELECT genre_name FROM artist_genres WHERE artist_uri = :artistUri")
     suspend fun getGenresForArtist(artistUri: String): List<String>
 
+    @Query("""
+        SELECT DISTINCT ag.artist_uri FROM artist_genres ag
+        WHERE ag.genre_name LIKE '%' || :query || '%'
+        LIMIT :limit
+    """)
+    suspend fun searchArtistUrisByGenre(query: String, limit: Int = 30): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertLastFmTags(tags: LastFmArtistTagsEntity)
 

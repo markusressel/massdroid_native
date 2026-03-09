@@ -104,7 +104,7 @@ fun AlbumDetailScreen(
                         contentDescription = "Album art",
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 24.dp)
+                            .padding(horizontal = 48.dp)
                             .aspectRatio(1f)
                             .clip(MaterialTheme.shapes.medium),
                         contentScale = ContentScale.Crop

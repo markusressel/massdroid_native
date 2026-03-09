@@ -13,6 +13,7 @@ import net.asksakis.massdroidv2.data.database.TrackEntity
 import net.asksakis.massdroidv2.data.database.TrackGenreEntity
 import net.asksakis.massdroidv2.domain.model.Track
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
+import net.asksakis.massdroidv2.domain.recommendation.normalizeGenre
 import net.asksakis.massdroidv2.domain.repository.AlbumScore
 import net.asksakis.massdroidv2.domain.repository.ArtistScore
 import net.asksakis.massdroidv2.domain.repository.DecadeScore
@@ -99,7 +100,7 @@ class PlayHistoryRepositoryImpl @Inject constructor(
         }
 
         for (genre in track.genres) {
-            val normalized = genre.lowercase().trim()
+            val normalized = normalizeGenre(genre)
             if (normalized.isNotBlank()) {
                 dao.insertGenre(GenreEntity(name = normalized))
                 dao.insertTrackGenre(TrackGenreEntity(trackUri = trackKey, genreName = normalized))
@@ -255,7 +256,7 @@ class PlayHistoryRepositoryImpl @Inject constructor(
 
     override suspend fun getGenreArtistMap(): Map<String, List<String>> {
         return dao.getGenreArtistUris()
-            .groupBy({ it.genre }, { it.artistUri })
+            .groupBy({ normalizeGenre(it.genre) }, { it.artistUri })
     }
 
     override suspend fun getRediscoverAlbums(limit: Int): List<RecentAlbum> {
@@ -301,6 +302,9 @@ class PlayHistoryRepositoryImpl @Inject constructor(
         )
         dao.deleteExpiredArtistTrackCache(now - (14 * MILLIS_PER_DAY))
     }
+
+    override suspend fun searchArtistUrisByGenre(query: String, limit: Int): List<String> =
+        dao.searchArtistUrisByGenre(query, limit)
 
     override suspend fun cleanup(retentionMonths: Int) {
         val cutoff = System.currentTimeMillis() - (retentionMonths * 30L * MILLIS_PER_DAY)

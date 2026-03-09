@@ -479,7 +479,7 @@ private fun <T> MediaList(
             InfiniteGridHandler(gridState, items.size, threshold = 6, onLoadMore = onLoadMore)
             LazyVerticalGrid(
                 state = gridState,
-                columns = GridCells.Adaptive(minSize = 150.dp),
+                columns = GridCells.Adaptive(minSize = 120.dp),
                 contentPadding = PaddingValues(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)

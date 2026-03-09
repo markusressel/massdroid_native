@@ -91,6 +91,7 @@ import net.asksakis.massdroidv2.domain.model.Artist
 import net.asksakis.massdroidv2.domain.model.Playlist
 import net.asksakis.massdroidv2.domain.model.Track
 import net.asksakis.massdroidv2.domain.recommendation.DiscoverSection
+import net.asksakis.massdroidv2.domain.recommendation.normalizeGenre
 import net.asksakis.massdroidv2.ui.components.formatAlbumTypeYear
 import net.asksakis.massdroidv2.ui.components.EqualizerBars
 
@@ -1036,5 +1037,5 @@ private fun genrePalette(name: String): Triple<Color, Color, Color> {
         Triple(Color(0xFF2B2B46), Color(0xFF11111C), Color(0x556C8CFF)),
         Triple(Color(0xFF3A2531), Color(0xFF160E12), Color(0x55FF6FAE))
     )
-    return palettes[(name.lowercase().hashCode().absoluteValue) % palettes.size]
+    return palettes[(normalizeGenre(name).hashCode().absoluteValue) % palettes.size]
 }

@@ -19,24 +19,30 @@ fun VolumeSlider(
     isMuted: Boolean,
     onVolumeChange: (Int) -> Unit,
     onMuteToggle: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     val haptic = LocalHapticFeedback.current
+    val iconSize = if (compact) 20.dp else 24.dp
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().let { if (compact) it.height(36.dp) else it },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            onMuteToggle()
-        }) {
+        IconButton(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onMuteToggle()
+            },
+            modifier = if (compact) Modifier.size(32.dp) else Modifier
+        ) {
             Icon(
                 imageVector = when {
                     isMuted || volume == 0 -> Icons.Default.VolumeMute
                     volume < 50 -> Icons.Default.VolumeDown
                     else -> Icons.Default.VolumeUp
                 },
-                contentDescription = "Volume"
+                contentDescription = "Volume",
+                modifier = Modifier.size(iconSize)
             )
         }
 
@@ -50,13 +56,13 @@ fun VolumeSlider(
                 onVolumeChange(sliderValue.toInt())
             },
             valueRange = 0f..100f,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f).let { if (compact) it.height(28.dp) else it }
         )
 
         Text(
             text = "${sliderValue.toInt()}%",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.width(40.dp)
+            style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall,
+            modifier = Modifier.width(if (compact) 32.dp else 40.dp)
         )
     }
 }

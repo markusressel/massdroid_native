@@ -38,6 +38,7 @@ import net.asksakis.massdroidv2.domain.model.RecommendationItems
 import net.asksakis.massdroidv2.domain.model.Track
 import net.asksakis.massdroidv2.domain.recommendation.DiscoverSection
 import net.asksakis.massdroidv2.domain.recommendation.DiscoverSectionBuilder
+import net.asksakis.massdroidv2.domain.recommendation.normalizeGenre
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
 import net.asksakis.massdroidv2.domain.recommendation.MixEngine
 import net.asksakis.massdroidv2.domain.recommendation.canonicalKey
@@ -121,7 +122,8 @@ class DiscoverViewModel @Inject constructor(
     private val recommendationEngine: RecommendationEngine,
     private val mixEngine: MixEngine,
     private val sectionBuilder: DiscoverSectionBuilder,
-    private val lastFmSimilarResolver: net.asksakis.massdroidv2.data.lastfm.LastFmSimilarResolver
+    private val lastFmSimilarResolver: net.asksakis.massdroidv2.data.lastfm.LastFmSimilarResolver,
+    private val lastFmLibraryEnricher: net.asksakis.massdroidv2.data.lastfm.LastFmLibraryEnricher
 ) : ViewModel() {
 
     private val sectionCoordinator = DiscoverSectionCoordinator(
@@ -544,10 +546,10 @@ class DiscoverViewModel @Inject constructor(
         if (recent.isEmpty()) return longTerm
         val merged = mutableMapOf<String, Double>()
         for (score in longTerm) {
-            merged[score.genre.lowercase()] = (merged[score.genre.lowercase()] ?: 0.0) + score.score
+            merged[normalizeGenre(score.genre)] = (merged[normalizeGenre(score.genre)] ?: 0.0) + score.score
         }
         for (score in recent) {
-            val genre = score.genre.lowercase()
+            val genre = normalizeGenre(score.genre)
             merged[genre] = (merged[genre] ?: 0.0) + score.score * 0.9
         }
         return merged.entries
@@ -579,6 +581,7 @@ class DiscoverViewModel @Inject constructor(
                 artistByUri = merged.mapNotNull { artist ->
                     artist.canonicalKey()?.let { it to artist }
                 }.toMap()
+                lastFmLibraryEnricher.enrichInBackground(merged)
 
                 val smartListeningEnabled = settingsRepository.smartListeningEnabled.first()
                 if (smartListeningEnabled) {

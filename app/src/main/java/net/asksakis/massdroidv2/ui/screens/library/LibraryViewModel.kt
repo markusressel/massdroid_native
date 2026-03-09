@@ -6,20 +6,26 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import net.asksakis.massdroidv2.data.websocket.ConnectionState
 import net.asksakis.massdroidv2.data.websocket.EventType
 import net.asksakis.massdroidv2.data.websocket.MaWebSocketClient
 import net.asksakis.massdroidv2.domain.model.*
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
+import net.asksakis.massdroidv2.domain.recommendation.normalizeGenre
 import net.asksakis.massdroidv2.data.database.PlayHistoryDao
 import net.asksakis.massdroidv2.data.lastfm.LastFmAlbumInfoResolver
 import net.asksakis.massdroidv2.data.lastfm.LastFmArtistInfoResolver
 import net.asksakis.massdroidv2.data.lastfm.LastFmGenreResolver
+import net.asksakis.massdroidv2.data.lastfm.LastFmLibraryEnricher
 import net.asksakis.massdroidv2.data.lastfm.LastFmSimilarResolver
 import net.asksakis.massdroidv2.domain.repository.MusicRepository
+import net.asksakis.massdroidv2.domain.repository.PlayHistoryRepository
 import net.asksakis.massdroidv2.domain.repository.PlayerRepository
 import net.asksakis.massdroidv2.domain.repository.SettingsRepository
 import net.asksakis.massdroidv2.domain.repository.SmartListeningRepository
@@ -34,7 +40,9 @@ class LibraryViewModel @Inject constructor(
     private val playerRepository: PlayerRepository,
     private val wsClient: MaWebSocketClient,
     private val settingsRepository: SettingsRepository,
-    private val smartListeningRepository: SmartListeningRepository
+    private val smartListeningRepository: SmartListeningRepository,
+    private val playHistoryRepository: PlayHistoryRepository,
+    private val lastFmLibraryEnricher: LastFmLibraryEnricher
 ) : ViewModel() {
 
     private val _artists = MutableStateFlow<List<Artist>>(emptyList())
@@ -247,15 +255,46 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    private fun parseMediaUri(uri: String): Pair<String, String>? {
+        val sep = uri.indexOf("://")
+        if (sep < 0) return null
+        val provider = uri.substring(0, sep)
+        val itemId = uri.substringAfterLast("/")
+        return if (provider.isNotBlank() && itemId.isNotBlank()) provider to itemId else null
+    }
+
     fun loadArtists() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val items = musicRepository.getArtists(
-                    search = currentSearch, limit = PAGE_SIZE, offset = 0, orderBy = currentOrderBy, favoriteOnly = currentFavoriteOnly
-                )
-                _artists.value = items
-                hasMoreArtists = items.size >= PAGE_SIZE
+                val query = currentSearch
+                val apiDeferred = async {
+                    musicRepository.getArtists(
+                        search = query, limit = PAGE_SIZE, offset = 0, orderBy = currentOrderBy, favoriteOnly = currentFavoriteOnly
+                    )
+                }
+                val genreDeferred = if (query != null && query.length >= 3) {
+                    async { runCatching { playHistoryRepository.searchArtistUrisByGenre(query) }.getOrElse { emptyList() } }
+                } else null
+
+                val apiResults = apiDeferred.await()
+                val genreUris = genreDeferred?.await().orEmpty()
+
+                val merged = if (genreUris.isNotEmpty()) {
+                    val existingUris = apiResults.map { it.uri }.toSet()
+                    val newUris = genreUris.filter { it !in existingUris }.take(20)
+                    val genreArtists = if (newUris.isNotEmpty()) {
+                        supervisorScope {
+                            newUris.map { uri -> async { runCatching { parseMediaUri(uri)?.let { (prov, id) -> musicRepository.getArtist(id, prov) } }.getOrNull() } }.awaitAll().filterNotNull()
+                        }
+                    } else emptyList()
+                    val seenUris = existingUris.toMutableSet()
+                    apiResults + genreArtists.filter { seenUris.add(it.uri) }
+                } else apiResults
+
+                _artists.value = merged
+                hasMoreArtists = apiResults.size >= PAGE_SIZE
+                lastFmLibraryEnricher.enrichInBackground(apiResults)
             } catch (_: Exception) {}
             _isLoading.value = false
         }
@@ -271,6 +310,7 @@ class LibraryViewModel @Inject constructor(
                 )
                 _artists.value = _artists.value + items
                 hasMoreArtists = items.size >= PAGE_SIZE
+                lastFmLibraryEnricher.enrichInBackground(items)
             } catch (_: Exception) {
             } finally {
                 _isLoadingMore.value = false
@@ -282,11 +322,35 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val items = musicRepository.getAlbums(
-                    search = currentSearch, limit = PAGE_SIZE, offset = 0, orderBy = currentOrderBy, favoriteOnly = currentFavoriteOnly
-                )
-                _albums.value = items
-                hasMoreAlbums = items.size >= PAGE_SIZE
+                val query = currentSearch
+                val apiDeferred = async {
+                    musicRepository.getAlbums(
+                        search = query, limit = PAGE_SIZE, offset = 0, orderBy = currentOrderBy, favoriteOnly = currentFavoriteOnly
+                    )
+                }
+                val genreDeferred = if (query != null && query.length >= 3) {
+                    async { runCatching { playHistoryRepository.searchArtistUrisByGenre(query) }.getOrElse { emptyList() } }
+                } else null
+
+                val apiResults = apiDeferred.await()
+                val genreUris = genreDeferred?.await().orEmpty()
+
+                val merged = if (genreUris.isNotEmpty()) {
+                    val genreAlbums: List<Album> = supervisorScope {
+                        genreUris.take(10).map { uri ->
+                            async {
+                                runCatching {
+                                    parseMediaUri(uri)?.let { (prov, id) -> musicRepository.getArtistAlbums(id, prov) }
+                                }.getOrNull().orEmpty()
+                            }
+                        }.awaitAll().flatten()
+                    }
+                    val seenUris = apiResults.map { it.uri }.toMutableSet()
+                    apiResults + genreAlbums.filter { seenUris.add(it.uri) }
+                } else apiResults
+
+                _albums.value = merged
+                hasMoreAlbums = apiResults.size >= PAGE_SIZE
             } catch (_: Exception) {}
             _isLoading.value = false
         }
@@ -313,11 +377,35 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val items = musicRepository.getTracks(
-                    search = currentSearch, limit = PAGE_SIZE, offset = 0, orderBy = currentOrderBy, favoriteOnly = currentFavoriteOnly
-                )
-                _tracks.value = items
-                hasMoreTracks = items.size >= PAGE_SIZE
+                val query = currentSearch
+                val apiDeferred = async {
+                    musicRepository.getTracks(
+                        search = query, limit = PAGE_SIZE, offset = 0, orderBy = currentOrderBy, favoriteOnly = currentFavoriteOnly
+                    )
+                }
+                val genreDeferred = if (query != null && query.length >= 3) {
+                    async { runCatching { playHistoryRepository.searchArtistUrisByGenre(query) }.getOrElse { emptyList() } }
+                } else null
+
+                val apiResults = apiDeferred.await()
+                val genreUris = genreDeferred?.await().orEmpty()
+
+                val merged = if (genreUris.isNotEmpty()) {
+                    val genreTracks: List<Track> = supervisorScope {
+                        genreUris.take(10).map { uri ->
+                            async {
+                                runCatching {
+                                    parseMediaUri(uri)?.let { (prov, id) -> musicRepository.getArtistTracks(id, prov) }
+                                }.getOrNull().orEmpty()
+                            }
+                        }.awaitAll().flatten()
+                    }
+                    val seenUris = apiResults.map { it.uri }.toMutableSet()
+                    apiResults + genreTracks.filter { seenUris.add(it.uri) }
+                } else apiResults
+
+                _tracks.value = merged
+                hasMoreTracks = apiResults.size >= PAGE_SIZE
             } catch (_: Exception) {}
             _isLoading.value = false
         }
@@ -607,7 +695,7 @@ class ArtistDetailViewModel @Inject constructor(
                 } else {
                     candidates.firstNotNullOfOrNull { c ->
                         val detail = musicRepository.getArtist(c.itemId, c.provider)
-                        val cGenres = detail?.genres?.map { it.lowercase() }?.toSet().orEmpty()
+                        val cGenres = detail?.genres?.map { normalizeGenre(it) }?.toSet().orEmpty()
                         when {
                             detail == null -> null
                             cGenres.isEmpty() -> detail

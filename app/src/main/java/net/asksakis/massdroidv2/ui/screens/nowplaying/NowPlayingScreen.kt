@@ -11,6 +11,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.automirrored.filled.Subject
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -51,6 +54,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.asksakis.massdroidv2.data.lyrics.LyricsProvider
 import net.asksakis.massdroidv2.domain.model.PlaybackState
 import net.asksakis.massdroidv2.domain.model.Playlist
 import net.asksakis.massdroidv2.domain.model.AudioFormatInfo
@@ -87,6 +91,9 @@ fun NowPlayingScreen(
     val artistBlocked = currentArtistUri?.let { it in blockedArtistUris } ?: false
     val canToggleArtistBlock = currentArtistUri != null
     var showPlayerMenu by remember { mutableStateOf(false) }
+    var showLyricsSheet by remember { mutableStateOf(false) }
+    val lyrics by viewModel.lyrics.collectAsStateWithLifecycle()
+    val isLoadingLyrics by viewModel.isLoadingLyrics.collectAsStateWithLifecycle()
     val title = currentTrack?.name ?: player?.currentMedia?.title ?: "No track"
     val artist = currentTrack?.artistNames ?: player?.currentMedia?.artist ?: ""
     val album = currentTrack?.albumName ?: player?.currentMedia?.album ?: ""
@@ -132,10 +139,6 @@ fun NowPlayingScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = onNavigateToQueue) {
-                            @Suppress("DEPRECATION")
-                            Icon(Icons.Default.QueueMusic, contentDescription = "Queue")
-                        }
                         IconButton(onClick = { showPlayerMenu = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "Player options")
                         }
@@ -168,14 +171,17 @@ fun NowPlayingScreen(
                     duration = duration,
                     player = player,
                     viewModel = viewModel,
-                    artistBlocked = artistBlocked,
-                    canToggleArtistBlock = canToggleArtistBlock,
                     onBack = onBack,
                     onNavigateToQueue = onNavigateToQueue,
                     onShowPlaylistDialog = {
                         showPlaylistDialog = true
                         viewModel.loadPlaylists(force = true)
                     },
+                    onShowLyrics = {
+                        showLyricsSheet = true
+                        viewModel.loadLyrics()
+                    },
+                    onShowPlayerMenu = { showPlayerMenu = true },
                     onNavigateToArtist = onNavigateToArtist,
                     onNavigateToAlbum = onNavigateToAlbum
                 )
@@ -198,6 +204,11 @@ fun NowPlayingScreen(
                         showPlaylistDialog = true
                         viewModel.loadPlaylists(force = true)
                     },
+                    onShowLyrics = {
+                        showLyricsSheet = true
+                        viewModel.loadLyrics()
+                    },
+                    onNavigateToQueue = onNavigateToQueue,
                     onNavigateToArtist = onNavigateToArtist,
                     onNavigateToAlbum = onNavigateToAlbum
                 )
@@ -245,6 +256,15 @@ fun NowPlayingScreen(
             )
         }
     }
+
+    if (showLyricsSheet) {
+        LyricsSheet(
+            lyrics = lyrics,
+            isLoading = isLoadingLyrics,
+            elapsedTime = elapsedTime,
+            onDismiss = { showLyricsSheet = false }
+        )
+    }
 }
 
 @Composable
@@ -263,6 +283,8 @@ private fun NowPlayingPortrait(
     player: net.asksakis.massdroidv2.domain.model.Player?,
     viewModel: NowPlayingViewModel,
     onShowPlaylistDialog: () -> Unit,
+    onShowLyrics: () -> Unit,
+    onNavigateToQueue: () -> Unit,
     onNavigateToArtist: (String, String, String) -> Unit,
     onNavigateToAlbum: (String, String, String) -> Unit
 ) {
@@ -289,7 +311,9 @@ private fun NowPlayingPortrait(
             audioFormat = audioFormat,
             currentTrack = currentTrack,
             viewModel = viewModel,
-            onShowPlaylistDialog = onShowPlaylistDialog
+            onShowPlaylistDialog = onShowPlaylistDialog,
+            onShowLyrics = onShowLyrics,
+            onNavigateToQueue = onNavigateToQueue
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -308,7 +332,8 @@ private fun NowPlayingPortrait(
         SeekBar(
             elapsed = elapsedTime,
             duration = duration,
-            onSeek = { viewModel.seek(it) }
+            onSeek = { viewModel.seek(it) },
+            compact = true
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -326,7 +351,8 @@ private fun NowPlayingPortrait(
             volume = player?.volumeLevel ?: 0,
             isMuted = player?.volumeMuted ?: false,
             onVolumeChange = { viewModel.setVolume(it) },
-            onMuteToggle = { viewModel.toggleMute() }
+            onMuteToggle = { viewModel.toggleMute() },
+            compact = true
         )
     }
 }
@@ -346,16 +372,15 @@ private fun NowPlayingLandscape(
     duration: Double,
     player: net.asksakis.massdroidv2.domain.model.Player?,
     viewModel: NowPlayingViewModel,
-    artistBlocked: Boolean,
-    canToggleArtistBlock: Boolean,
     onBack: () -> Unit,
     onNavigateToQueue: () -> Unit,
     onShowPlaylistDialog: () -> Unit,
+    onShowLyrics: () -> Unit,
+    onShowPlayerMenu: () -> Unit,
     onNavigateToArtist: (String, String, String) -> Unit,
     onNavigateToAlbum: (String, String, String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
-    var showPlayerMenu by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxSize()
@@ -387,7 +412,7 @@ private fun NowPlayingLandscape(
                 .fillMaxHeight()
                 .padding(start = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.SpaceEvenly
         ) {
             // Back + queue row
             Row(
@@ -408,28 +433,20 @@ private fun NowPlayingLandscape(
                         .align(Alignment.CenterVertically),
                     textAlign = TextAlign.Center
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onNavigateToQueue, modifier = Modifier.size(36.dp)) {
-                        @Suppress("DEPRECATION")
-                        Icon(Icons.Default.QueueMusic, contentDescription = "Queue", modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(onClick = { showPlayerMenu = true }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Player options", modifier = Modifier.size(20.dp))
-                    }
+                IconButton(onClick = onShowPlayerMenu, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Player options", modifier = Modifier.size(20.dp))
                 }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
 
             QualityActionRow(
                 audioFormat = audioFormat,
                 currentTrack = currentTrack,
                 viewModel = viewModel,
                 onShowPlaylistDialog = onShowPlaylistDialog,
+                onShowLyrics = onShowLyrics,
+                onNavigateToQueue = onNavigateToQueue,
                 compact = true
             )
-
-            Spacer(modifier = Modifier.height(8.dp))
 
             TrackInfoSection(
                 title = title,
@@ -441,15 +458,12 @@ private fun NowPlayingLandscape(
                 compact = true
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
             SeekBar(
                 elapsed = elapsedTime,
                 duration = duration,
-                onSeek = { viewModel.seek(it) }
+                onSeek = { viewModel.seek(it) },
+                compact = true
             )
-
-            Spacer(modifier = Modifier.height(4.dp))
 
             TransportControls(
                 isPlaying = isPlaying,
@@ -459,13 +473,12 @@ private fun NowPlayingLandscape(
                 onHaptic = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
-
             VolumeSlider(
                 volume = player?.volumeLevel ?: 0,
                 isMuted = player?.volumeMuted ?: false,
                 onVolumeChange = { viewModel.setVolume(it) },
-                onMuteToggle = { viewModel.toggleMute() }
+                onMuteToggle = { viewModel.toggleMute() },
+                compact = true
             )
         }
     }
@@ -506,6 +519,8 @@ private fun QualityActionRow(
     currentTrack: net.asksakis.massdroidv2.domain.model.Track?,
     viewModel: NowPlayingViewModel,
     onShowPlaylistDialog: () -> Unit,
+    onShowLyrics: () -> Unit,
+    onNavigateToQueue: () -> Unit,
     compact: Boolean = false
 ) {
     val haptic = LocalHapticFeedback.current
@@ -521,36 +536,200 @@ private fun QualityActionRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            IconButton(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onShowPlaylistDialog()
-                },
-                modifier = Modifier.size(actionButtonSize)
-            ) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = "Add to playlist",
-                    modifier = Modifier.size(actionIconSize),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onShowPlaylistDialog()
+                    },
+                    modifier = Modifier.size(actionButtonSize)
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = "Add to playlist",
+                        modifier = Modifier.size(actionIconSize),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onShowLyrics()
+                    },
+                    modifier = Modifier.size(actionButtonSize)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Subject,
+                        contentDescription = "Lyrics",
+                        modifier = Modifier.size(actionIconSize),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             AudioQualityBadges(audioFormat = audioFormat, compact = compact)
-            IconButton(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    viewModel.toggleFavorite()
-                },
-                modifier = Modifier.size(actionButtonSize)
-            ) {
-                Icon(
-                    if (currentTrack?.favorite == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = "Toggle favorite",
-                    modifier = Modifier.size(actionIconSize),
-                    tint = if (currentTrack?.favorite == true) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                @Suppress("DEPRECATION")
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onNavigateToQueue()
+                    },
+                    modifier = Modifier.size(actionButtonSize)
+                ) {
+                    Icon(
+                        Icons.Default.QueueMusic,
+                        contentDescription = "Queue",
+                        modifier = Modifier.size(actionIconSize),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        viewModel.toggleFavorite()
+                    },
+                    modifier = Modifier.size(actionButtonSize)
+                ) {
+                    Icon(
+                        if (currentTrack?.favorite == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Toggle favorite",
+                        modifier = Modifier.size(actionIconSize),
+                        tint = if (currentTrack?.favorite == true) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LyricsSheet(
+    lyrics: LyricsProvider.LyricsResult?,
+    isLoading: Boolean,
+    elapsedTime: Double,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = SheetDefaults.containerColor()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f)
+        ) {
+            SheetDefaults.HeaderTitle(
+                text = "Lyrics",
+                modifier = Modifier.padding(
+                    horizontal = SheetDefaults.HeaderHorizontalPadding,
+                    vertical = SheetDefaults.HeaderVerticalPadding
+                )
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            when {
+                isLoading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+                lyrics == null || (lyrics.plainText == null && lyrics.syncedLrc == null) -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No lyrics available",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                lyrics.syncedLrc != null -> {
+                    SyncedLyricsContent(
+                        lrc = lyrics.syncedLrc,
+                        elapsedTimeMs = (elapsedTime * 1000).toLong()
+                    )
+                }
+                else -> {
+                    PlainLyricsContent(text = lyrics.plainText!!)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlainLyricsContent(text: String) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(bottom = 32.dp)
+    ) {
+        item {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                lineHeight = MaterialTheme.typography.bodyLarge.lineHeight * 1.4
+            )
+        }
+    }
+}
+
+@Composable
+private fun SyncedLyricsContent(lrc: String, elapsedTimeMs: Long) {
+    val lines = remember(lrc) { LyricsProvider.parseLrc(lrc) }
+    val listState = rememberLazyListState()
+
+    val currentIndex = remember(elapsedTimeMs, lines) {
+        val idx = lines.indexOfLast { it.timeMs <= elapsedTimeMs }
+        if (idx < 0) 0 else idx
+    }
+
+    LaunchedEffect(currentIndex) {
+        if (lines.isNotEmpty() && currentIndex >= 0) {
+            listState.animateScrollToItem(
+                index = currentIndex,
+                scrollOffset = -200
+            )
+        }
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 200.dp)
+    ) {
+        itemsIndexed(lines) { index, line ->
+            val isCurrent = index == currentIndex
+            Text(
+                text = line.text.ifBlank { " " },
+                style = if (isCurrent) {
+                    MaterialTheme.typography.titleLarge
+                } else {
+                    MaterialTheme.typography.bodyLarge
+                },
+                color = if (isCurrent) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp)
+            )
         }
     }
 }
@@ -583,8 +762,10 @@ private fun PlayerOptionsSheet(
     onPlayerSettings: () -> Unit,
     onClick: () -> Unit
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = SheetDefaults.containerColor()
     ) {
         Column(modifier = Modifier.padding(bottom = 24.dp)) {
@@ -1143,7 +1324,8 @@ private fun extractColor(bitmap: Bitmap, isDark: Boolean): Color {
 private fun SeekBar(
     elapsed: Double,
     duration: Double,
-    onSeek: (Double) -> Unit
+    onSeek: (Double) -> Unit,
+    compact: Boolean = false
 ) {
     val haptic = LocalHapticFeedback.current
     var seeking by remember { mutableStateOf(false) }
@@ -1176,15 +1358,17 @@ private fun SeekBar(
                 seekTarget = seekValue
                 seeking = false
             },
-            valueRange = 0f..duration.toFloat().coerceAtLeast(1f)
+            valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+            modifier = if (compact) Modifier.height(28.dp) else Modifier
         )
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(formatTime(displayValue.toDouble()), style = MaterialTheme.typography.bodySmall)
-            Text(formatTime(duration), style = MaterialTheme.typography.bodySmall)
+            val timeStyle = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall
+            Text(formatTime(displayValue.toDouble()), style = timeStyle)
+            Text(formatTime(duration), style = timeStyle)
         }
     }
 }

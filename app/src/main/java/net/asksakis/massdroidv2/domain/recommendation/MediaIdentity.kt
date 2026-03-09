@@ -14,7 +14,10 @@ fun Track.canonicalKey(): String? = MediaIdentity.canonicalTrackKey(itemId = ite
 fun List<ArtistScore>.toScoreMap(): Map<String, Double> = associate { it.artistUri to it.score }
 
 @JvmName("genreScoresToMap")
-fun List<GenreScore>.toScoreMap(): Map<String, Double> = associate { it.genre.lowercase() to it.score }
+fun List<GenreScore>.toScoreMap(): Map<String, Double> = associate { normalizeGenre(it.genre) to it.score }
+
+/** Single canonical form for genre names across the app. */
+fun normalizeGenre(genre: String): String = genre.trim().lowercase()
 
 object MediaIdentity {
 

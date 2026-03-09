@@ -39,8 +39,8 @@ class DiscoverSectionBuilder @Inject constructor() {
 
         // 1. Genre Radio (BLL-weighted, top 10)
         val sortedGenres = if (bllGenreScores.isNotEmpty()) {
-            val scoreMap = bllGenreScores.associate { it.genre.lowercase() to it.score }
-            genreItems.sortedByDescending { scoreMap[it.name.lowercase()] ?: 0.0 }
+            val scoreMap = bllGenreScores.associate { normalizeGenre(it.genre) to it.score }
+            genreItems.sortedByDescending { scoreMap[normalizeGenre(it.name)] ?: 0.0 }
         } else {
             genreItems
         }.take(10)
