@@ -7,6 +7,7 @@ import net.asksakis.massdroidv2.data.lastfm.LastFmSimilarResolver
 import net.asksakis.massdroidv2.domain.model.Album
 import net.asksakis.massdroidv2.domain.model.Artist
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
+import net.asksakis.massdroidv2.domain.recommendation.normalizeGenre
 import net.asksakis.massdroidv2.domain.recommendation.RecommendationEngine
 import net.asksakis.massdroidv2.domain.recommendation.toScoreMap
 import net.asksakis.massdroidv2.domain.recommendation.ScoredAlbum
@@ -31,10 +32,12 @@ class DiscoverRecommendationOrchestrator(
         val genreScores = playHistoryRepository.getScoredGenres(days = 90, limit = 20)
         val artistScores = playHistoryRepository.getScoredArtists(days = 90, limit = 50)
         val genreAdjacency = playHistoryRepository.getGenreAdjacencyMap()
+        val enrichedArtistGenres = invertGenreArtistMap()
 
         Log.d(
             ORCHESTRATOR_TAG,
-            "BLL: ${genreScores.size} genres, ${artistScores.size} artists, ${genreAdjacency.size} adjacency"
+            "BLL: ${genreScores.size} genres, ${artistScores.size} artists, " +
+                "${genreAdjacency.size} adjacency, ${enrichedArtistGenres.size} enriched"
         )
         if (genreScores.isNotEmpty()) {
             Log.d(
@@ -71,6 +74,7 @@ class DiscoverRecommendationOrchestrator(
             artistIdentity = artistIdentity,
             similarArtistScores = similarArtistScores,
             similarArtistUris = similarArtistUris,
+            enrichedArtistGenres = enrichedArtistGenres,
             count = 10
         )
     }
@@ -101,8 +105,12 @@ class DiscoverRecommendationOrchestrator(
                 .filterNot { it in excludedArtistUris }
                 .toSet()
 
+            val enrichedArtistGenres = invertGenreArtistMap()
             val artistGenreMap = candidateArtists.mapNotNull { artist ->
-                artistIdentity(artist).let { it to artist.genres.map { g -> g.lowercase() }.toSet() }
+                val key = artistIdentity(artist)
+                val genres = artist.genres.map { g -> normalizeGenre(g) }.toSet()
+                    .ifEmpty { enrichedArtistGenres[key].orEmpty() }
+                key to genres
             }.toMap()
             val genreScoreMap = genreScores.toScoreMap()
 
@@ -137,11 +145,14 @@ class DiscoverRecommendationOrchestrator(
                     allCandidateAlbums.addAll(def.await())
                 }
 
-                val topGenreNames = genreScores.map { it.genre.lowercase() }.toSet()
+                val topGenreNames = genreScores.map { normalizeGenre(it.genre) }.toSet()
                 val discoveryArtists = candidateArtists
                     .filter { artist -> artistIdentity(artist) !in topArtistUris }
                     .filterNot { artist -> artistIdentity(artist) in excludedArtistUris }
-                    .filter { it.genres.any { g -> g.lowercase() in topGenreNames } }
+                    .filter { artist ->
+                        val genres = artistGenreMap[artistIdentity(artist)].orEmpty()
+                        genres.any { it in topGenreNames }
+                    }
                     .shuffled()
                     .take(5)
 
@@ -149,7 +160,7 @@ class DiscoverRecommendationOrchestrator(
                     async {
                         try {
                             val albums = musicRepository.getArtistAlbums(artist.itemId, artist.provider)
-                            val genres = artist.genres.map { g -> g.lowercase() }.toSet()
+                            val genres = artistGenreMap[artistIdentity(artist)].orEmpty()
                             albums.filter { album ->
                                 val key = albumIdentity(album)
                                 key !in recentAlbumUris && album.albumType != "single"
@@ -250,5 +261,16 @@ class DiscoverRecommendationOrchestrator(
 
         Log.d(ORCHESTRATOR_TAG, "Similar artists: ${similarUris.size} matched from ${topArtists.size} sources")
         similarScores to similarUris
+    }
+
+    private suspend fun invertGenreArtistMap(): Map<String, Set<String>> {
+        val genreArtistMap = playHistoryRepository.getGenreArtistMap()
+        val result = mutableMapOf<String, MutableSet<String>>()
+        for ((genre, uris) in genreArtistMap) {
+            for (uri in uris) {
+                result.getOrPut(uri) { mutableSetOf() }.add(genre)
+            }
+        }
+        return result
     }
 }

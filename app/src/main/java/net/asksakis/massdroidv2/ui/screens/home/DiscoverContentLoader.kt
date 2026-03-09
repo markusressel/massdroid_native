@@ -8,6 +8,7 @@ import net.asksakis.massdroidv2.domain.model.Artist
 import net.asksakis.massdroidv2.domain.model.RecommendationFolder
 import net.asksakis.massdroidv2.domain.model.RecommendationItems
 import net.asksakis.massdroidv2.domain.recommendation.MediaIdentity
+import net.asksakis.massdroidv2.domain.recommendation.normalizeGenre
 import net.asksakis.massdroidv2.domain.recommendation.canonicalKey
 import net.asksakis.massdroidv2.domain.repository.MusicRepository
 import net.asksakis.massdroidv2.domain.repository.PlayHistoryRepository
@@ -158,10 +159,16 @@ class DiscoverContentLoader(
         historyGenreArtists: Map<String, List<String>>,
         artistByUri: Map<String, Artist>
     ): Triple<List<GenreItem>, Map<String, List<String>>, Map<String, List<String>>> {
+        // Artists with enriched genres in play history (Last.fm preferred)
+        val enrichedArtistKeys = buildSet {
+            historyGenreArtists.values.forEach { addAll(it) }
+        }
         val genreMap = mutableMapOf<String, MutableList<Artist>>()
         for (artist in artists) {
+            val key = artist.canonicalKey()
+            if (key != null && key in enrichedArtistKeys) continue
             for (genre in artist.genres) {
-                genreMap.getOrPut(genre.lowercase()) { mutableListOf() }.add(artist)
+                genreMap.getOrPut(normalizeGenre(genre)) { mutableListOf() }.add(artist)
             }
         }
 

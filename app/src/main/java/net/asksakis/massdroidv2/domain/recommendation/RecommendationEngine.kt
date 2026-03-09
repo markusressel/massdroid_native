@@ -44,6 +44,7 @@ class RecommendationEngine @Inject constructor() {
         artistIdentity: (Artist) -> String = { it.uri },
         similarArtistScores: Map<String, Double> = emptyMap(),
         similarArtistUris: Set<String> = emptySet(),
+        enrichedArtistGenres: Map<String, Set<String>> = emptyMap(),
         count: Int = 10
     ): List<Artist> {
         if (genreScores.isEmpty()) return candidates.shuffled().take(count)
@@ -60,10 +61,17 @@ class RecommendationEngine @Inject constructor() {
         val genreScoreMap = genreScores.toScoreMap()
         val topGenreNames = genreScoreMap.keys
 
+        fun resolveGenres(artist: Artist): Set<String> {
+            val maGenres = artist.genres.map { normalizeGenre(it) }.toSet()
+            if (maGenres.isNotEmpty()) return maGenres
+            return enrichedArtistGenres[artistIdentity(artist)].orEmpty()
+        }
+
         // Score each candidate by sum of their genre affinities + signal + similar bonus
         val scored = eligible.map { artist ->
             val key = artistIdentity(artist)
-            val affinityScore = artist.genres.sumOf { g -> genreScoreMap[g.lowercase()] ?: 0.0 }
+            val genres = resolveGenres(artist)
+            val affinityScore = genres.sumOf { g -> genreScoreMap[g] ?: 0.0 }
             val signalBoost = artistSignalScores[key] ?: 0.0
             val similarBonus = (similarArtistScores[key] ?: 0.0) * 0.6
             ScoredArtist(artist, affinityScore + signalBoost * 0.5 + similarBonus)
@@ -74,7 +82,7 @@ class RecommendationEngine @Inject constructor() {
         val wildcardCount = count - exploitCount - exploreCount
 
         // Exploit: MMR re-ranked top scored (with jitter for variety)
-        val exploitPicks = mmrRerank(scored, ARTIST_LAMBDA, exploitCount) { it.artist.genres.map { g -> g.lowercase() }.toSet() }
+        val exploitPicks = mmrRerank(scored, ARTIST_LAMBDA, exploitCount) { resolveGenres(it.artist) }
         val usedUris = exploitPicks.mapTo(mutableSetOf()) { artistIdentity(it.artist) }
 
         // Explore: similar artists first, then adjacent genre artists
@@ -87,9 +95,9 @@ class RecommendationEngine @Inject constructor() {
             genreAdjacency[g].orEmpty()
         } - topGenreNames
         val adjacentCandidates = if (adjacentGenres.isNotEmpty()) {
-            eligible.filter { artistIdentity(it) !in usedUris && it.genres.any { g -> g.lowercase() in adjacentGenres } }
+            eligible.filter { artistIdentity(it) !in usedUris && resolveGenres(it).any { g -> g in adjacentGenres } }
         } else {
-            eligible.filter { artistIdentity(it) !in usedUris && it.genres.none { g -> g.lowercase() in topGenreNames } }
+            eligible.filter { artistIdentity(it) !in usedUris && resolveGenres(it).none { g -> g in topGenreNames } }
         }
         val exploreCandidates = (similarCandidates + adjacentCandidates).distinctBy { artistIdentity(it) }
         val explorePicks = exploreCandidates.shuffled().take(exploreCount)

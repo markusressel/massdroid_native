@@ -144,6 +144,7 @@ fun ArtistDetailScreen(
                             contentDescription = "Artist image",
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .padding(horizontal = 24.dp)
                                 .aspectRatio(16f / 9f)
                                 .clip(MaterialTheme.shapes.medium),
                             contentScale = ContentScale.Crop

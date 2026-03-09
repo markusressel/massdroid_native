@@ -496,10 +496,11 @@ class PlaybackService : MediaLibraryService() {
             // Notification buttons -> normal flow (controls selected player)
             if (session.isMediaNotificationController(controllerInfo)) return false
 
-            // BT/hardware buttons: route to sendspin when active
-            val ctrl = sendspinController ?: return false
-            if (!sendspinActive) return false
-            ctrl.sendspinPlayerId ?: return false
+            // BT/hardware buttons: route to sendspin when active, consume otherwise
+            // (prevent accidental playback on remote players from BT auto-play)
+            val ctrl = sendspinController ?: return true
+            if (!sendspinActive) return true
+            ctrl.sendspinPlayerId ?: return true
 
             val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
@@ -931,11 +932,12 @@ class RemoteControlPlayer(
                         .setAlbumTitle(entry.album.ifEmpty { null })
                         .build()
                 }
+                val durMs = if (index == 0 && _durationMs > 0) _durationMs else entry.durationMs
                 val item = MediaItem.Builder().setMediaMetadata(meta).build()
                 MediaItemData.Builder(entry.id)
                     .setMediaItem(item)
                     .setMediaMetadata(meta)
-                    .setDurationUs(if (entry.durationMs > 0) entry.durationMs * 1000 else C_TIME_UNSET)
+                    .setDurationUs(if (durMs > 0) durMs * 1000 else C_TIME_UNSET)
                     .build()
             })
         } else if (_title.isNotEmpty()) {

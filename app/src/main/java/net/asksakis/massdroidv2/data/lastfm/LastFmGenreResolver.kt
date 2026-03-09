@@ -75,7 +75,7 @@ class LastFmGenreResolver @Inject constructor(
         )
 
         private fun normalizeTag(tag: String): String =
-            tag.lowercase().trim().replace('-', ' ')
+            net.asksakis.massdroidv2.domain.recommendation.normalizeGenre(tag).replace('-', ' ')
     }
 
     suspend fun resolve(artistName: String): List<String> {

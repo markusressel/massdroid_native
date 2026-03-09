@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import net.asksakis.massdroidv2.data.lyrics.LyricsProvider
 import net.asksakis.massdroidv2.domain.model.MediaType
 import net.asksakis.massdroidv2.domain.model.Playlist
 import net.asksakis.massdroidv2.domain.model.PlayerConfig
@@ -31,7 +34,8 @@ class NowPlayingViewModel @Inject constructor(
     private val playerRepository: PlayerRepository,
     private val musicRepository: MusicRepository,
     private val smartListeningRepository: SmartListeningRepository,
-    private val wsClient: MaWebSocketClient
+    private val wsClient: MaWebSocketClient,
+    private val lyricsProvider: LyricsProvider
 ) : ViewModel() {
 
     val selectedPlayer = playerRepository.selectedPlayer
@@ -46,12 +50,26 @@ class NowPlayingViewModel @Inject constructor(
     private val _addingToPlaylistId = MutableStateFlow<String?>(null)
     val addingToPlaylistId: StateFlow<String?> = _addingToPlaylistId.asStateFlow()
 
+    private val _lyrics = MutableStateFlow<LyricsProvider.LyricsResult?>(null)
+    val lyrics: StateFlow<LyricsProvider.LyricsResult?> = _lyrics.asStateFlow()
+    private val _isLoadingLyrics = MutableStateFlow(false)
+    val isLoadingLyrics: StateFlow<Boolean> = _isLoadingLyrics.asStateFlow()
+
     private val _error = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val error: SharedFlow<String> = _error.asSharedFlow()
 
     init {
         viewModelScope.launch {
             smartListeningRepository.blockedArtistUris.collect { _blockedArtistUris.value = it }
+        }
+        viewModelScope.launch {
+            queueState
+                .map { it?.currentItem?.track?.uri }
+                .distinctUntilChanged()
+                .collect {
+                    _lyrics.value = null
+                    lyricsProvider.clearCache()
+                }
         }
         viewModelScope.launch {
             wsClient.events.collect { event ->
@@ -223,6 +241,22 @@ class NowPlayingViewModel @Inject constructor(
                 _error.tryEmit("Failed to load playlists")
             } finally {
                 _isLoadingPlaylists.value = false
+            }
+        }
+    }
+
+    fun loadLyrics() {
+        val track = queueState.value?.currentItem?.track ?: return
+        if (_isLoadingLyrics.value) return
+        viewModelScope.launch {
+            _isLoadingLyrics.value = true
+            try {
+                _lyrics.value = lyricsProvider.getLyrics(track.itemId, track.provider, track.uri)
+            } catch (e: Exception) {
+                Log.w(TAG, "loadLyrics failed: ${e.message}")
+                _lyrics.value = LyricsProvider.LyricsResult(null, null)
+            } finally {
+                _isLoadingLyrics.value = false
             }
         }
     }

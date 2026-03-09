@@ -80,7 +80,7 @@ class MixEngine @Inject constructor() {
             is MixMode.SmartMix -> mode.genreScores.toScoreMap()
             is MixMode.GenreMix -> emptyMap()
         }
-        val targetGenre = (mode as? MixMode.GenreMix)?.let { normalizeGenre(it.genre) }
+        val targetGenre = (mode as? MixMode.GenreMix)?.let { fuzzyNormalizeGenre(it.genre) }
 
         val seenTrackKeys = mutableSetOf<String>()
         val byArtistCount = mutableMapOf<String, Int>()
@@ -108,7 +108,7 @@ class MixEngine @Inject constructor() {
                         if (confidence <= 0.0) return@mapNotNull null
                         confidence * 1.25
                     } else {
-                        track.genres.sumOf { g -> genreScoreMap[g.lowercase()] ?: 0.0 } * 0.6
+                        track.genres.sumOf { g -> genreScoreMap[normalizeGenre(g)] ?: 0.0 } * 0.6
                     }
 
                     val trackAlbumKey = MediaIdentity.canonicalAlbumKey(track.albumItemId, track.albumUri)
@@ -194,7 +194,7 @@ class MixEngine @Inject constructor() {
     ): List<String> {
         val random = Random(randomSeed)
         val artistScoreMap = mode.artistScores.toScoreMap()
-        val topGenres = mode.genreScores.take(TOP_GENRES_LIMIT).map { it.genre.lowercase() }
+        val topGenres = mode.genreScores.take(TOP_GENRES_LIMIT).map { normalizeGenre(it.genre) }
         val scoreByUri = mutableMapOf<String, Double>()
         val comfortCandidates = linkedSetOf<String>()
         val genreCandidates = linkedSetOf<String>()
@@ -389,7 +389,7 @@ class MixEngine @Inject constructor() {
     // --- Genre matching (GenreMix) ---
 
     private fun genreConfidence(targetGenre: String, track: Track): Double {
-        val trackGenres = track.genres.map(::normalizeGenre).filter { it.isNotBlank() }
+        val trackGenres = track.genres.map(::fuzzyNormalizeGenre).filter { it.isNotBlank() }
         return when {
             trackGenres.any { genreMatches(targetGenre, it) } -> 1.0
             trackGenres.isEmpty() -> 0.58
@@ -410,12 +410,11 @@ class MixEngine @Inject constructor() {
             .filter { it.isNotBlank() }
             .toSet()
 
-    private fun normalizeGenre(value: String): String =
-        value.lowercase()
+    private fun fuzzyNormalizeGenre(value: String): String =
+        normalizeGenre(value)
             .replace("&", "and")
             .replace("-", " ")
             .replace(Regex("\\s+"), " ")
-            .trim()
 
     // --- Interleaving ---
 

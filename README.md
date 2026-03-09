@@ -41,17 +41,17 @@ MassDroid includes a local recommendation engine that learns your listening habi
 - **MMR Re-ranking** : Prevents genre clustering by penalizing items too similar to already-selected ones.
 - **Genre Adjacency** : Built from co-occurrence in your play history to discover genres you might enjoy.
 - **Exploration Budget** : 70% top matches, 20% adjacent genres, 10% wildcard for serendipitous discovery.
-- **Last.fm Genre Fallback** : When your music provider has no genre data, the app queries Last.fm artist tags (optional, cached locally for 30 days).
+- **Last.fm Genre Fallback** : When your music provider has no genre data, the app queries Last.fm artist tags (optional, cached locally for 30 days). Enriched genres are used across the entire app: recommendations, Smart Mix, genre radio, and library search.
 
 All recommendation data stays on-device in a local Room database. Nothing is sent to external services.
 
 ## Features
 
 - **Discover Home** : Dynamic recommendation sections with recently played, top picks, genre radio, and Smart Mix
-- **Library Browsing** : Artists, Albums, Tracks, Playlists with search, sort, and grid/list views
+- **Library Browsing** : Artists, Albums, Tracks, Playlists with search, sort, and grid/list views. Genre-based search finds artists, albums, and tracks by genre when your library has been enriched with Last.fm tags.
 - **Artist & Album Detail** : Rich detail views with descriptions, genres, similar artists, and now-playing indicators
 - **Player Controls** : Play, pause, skip, seek, volume, shuffle, repeat across all MA players
-- **Now Playing** : Full-screen player with album art, seek bar, favorite toggle, and artist blocking
+- **Now Playing** : Full-screen player with album art, seek bar, favorite toggle, lyrics, and artist blocking
 - **Queue Management** : View, drag-to-reorder, transfer between players, and manage the playback queue with action sheets
 - **Favorites** : Mark artists, albums, tracks, and playlists as favorites, filter library by favorites
 - **Phone as Speaker** : Sendspin protocol turns your phone into a Music Assistant player. Audio streams as Opus frames over WebSocket, decoded and played through your phone speaker or headphones.
