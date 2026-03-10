@@ -15,6 +15,7 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -67,7 +68,10 @@ class SendspinAudioController(
         private const val WAKE_LOCK_TIMEOUT_MS = 6 * 60 * 60 * 1000L
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val exceptionHandler = CoroutineExceptionHandler { _, e ->
+        Log.e(TAG, "Coroutine exception: ${e.message}")
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + exceptionHandler)
 
     // Audio focus
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -81,6 +85,7 @@ class SendspinAudioController(
             if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
                 Log.d(TAG, "Audio becoming noisy (headset unplugged), pausing")
                 val id = sendspinPlayerId ?: return
+                resumeAborted = true
                 currentIsPlaying = false
                 sendspinManager.pauseAudio()
                 optimisticUntil = System.currentTimeMillis() + 1000
@@ -119,6 +124,7 @@ class SendspinAudioController(
     private val reconnectDropLock = Any()
     private val reconnectDropTimestampsMs = ArrayDeque<Long>()
     private var reconnectCooldownUntilMs = 0L
+    @Volatile private var resumeAborted = false
 
     fun start() {
         if (collectorJobs.isNotEmpty()) {
@@ -335,6 +341,10 @@ class SendspinAudioController(
                     Log.d(TAG, "Reconnect: clientId=$clientId, wasPlaying=$wasPlayingBeforeDisconnect")
                     if (wasPlayingBeforeDisconnect) {
                         wasPlayingBeforeDisconnect = false
+                        if (resumeAborted) {
+                            Log.d(TAG, "Resume aborted by explicit pause before reconnect, skipping")
+                            return@collect
+                        }
                         val ssReady = withTimeoutOrNull(10000) {
                             sendspinManager.connectionState
                                 .first { it == SendspinState.SYNCING || it == SendspinState.STREAMING }
@@ -354,6 +364,10 @@ class SendspinAudioController(
                             Log.d(TAG, "Resuming on sendspin $clientId at ${seekTo}s, uri=$trackUri")
                             var resumed = false
                             for (attempt in 1..3) {
+                                if (resumeAborted) {
+                                    Log.d(TAG, "Resume aborted by explicit pause, stopping")
+                                    break
+                                }
                                 val ssState = sendspinManager.connectionState.value
                                 if (ssState != SendspinState.SYNCING && ssState != SendspinState.STREAMING) {
                                     Log.d(TAG, "Sendspin no longer ready ($ssState), aborting resume")
@@ -362,11 +376,19 @@ class SendspinAudioController(
                                 try {
                                     if (trackUri != null) {
                                         val idx = waitForQueueTrackIndex(clientId, trackUri)
+                                        if (resumeAborted) {
+                                            Log.d(TAG, "Resume aborted by explicit pause after queue check, stopping")
+                                            break
+                                        }
                                         if (idx >= 0) {
                                             Log.d(TAG, "Found track at queue index $idx, using play_index")
                                             musicRepository.playQueueIndex(clientId, idx)
                                         } else if (restoreSavedQueueSnapshot(clientId, trackUri)) {
                                             val restoredIdx = waitForQueueTrackIndex(clientId, trackUri)
+                                            if (resumeAborted) {
+                                                Log.d(TAG, "Resume aborted by explicit pause after snapshot restore, stopping")
+                                                break
+                                            }
                                             if (restoredIdx >= 0) {
                                                 Log.d(TAG, "Restored saved queue snapshot, using play_index=$restoredIdx")
                                                 musicRepository.playQueueIndex(clientId, restoredIdx)
@@ -451,6 +473,7 @@ class SendspinAudioController(
 
     fun handlePlay() {
         val id = sendspinPlayerId ?: return
+        resumeAborted = false
         playerRepository.selectPlayer(id)
         currentIsPlaying = true
         lastPlayingAtMs = System.currentTimeMillis()
@@ -466,6 +489,7 @@ class SendspinAudioController(
 
     fun handlePause() {
         val id = sendspinPlayerId ?: return
+        resumeAborted = true
         currentIsPlaying = false
         optimisticUntil = System.currentTimeMillis() + 1000
         notifyStateChanged()
@@ -477,6 +501,7 @@ class SendspinAudioController(
         val id = sendspinPlayerId ?: return
         val wantPlay = !currentIsPlaying
         if (wantPlay) {
+            resumeAborted = false
             currentIsPlaying = true
             lastPlayingAtMs = System.currentTimeMillis()
             if (!hasAudioFocus) requestAudioFocus()
@@ -534,6 +559,7 @@ class SendspinAudioController(
                     }
                     AudioManager.AUDIOFOCUS_LOSS -> {
                         Log.d(TAG, "Audio focus lost permanently")
+                        resumeAborted = true
                         hasAudioFocus = false
                         if (isStreaming) {
                             val id = sendspinPlayerId
@@ -671,9 +697,15 @@ class SendspinAudioController(
     }
 
     private suspend fun restoreSavedQueueSnapshot(queueId: String, trackUri: String): Boolean {
-        val snapshotUris = resumeQueueTrackUris
+        var snapshotUris = resumeQueueTrackUris
             .filter { it.isNotBlank() }
             .distinct()
+        if (snapshotUris.isEmpty()) {
+            Log.d(TAG, "In-memory snapshot empty, trying persisted snapshot from DataStore")
+            snapshotUris = settingsRepository.sendspinSnapshotQueueUris.first()
+                .filter { it.isNotBlank() }
+                .distinct()
+        }
         if (snapshotUris.isEmpty() || trackUri !in snapshotUris) return false
         Log.d(TAG, "Restoring saved sendspin queue snapshot (${snapshotUris.size} tracks)")
         musicRepository.playMedia(queueId, snapshotUris, option = "replace")

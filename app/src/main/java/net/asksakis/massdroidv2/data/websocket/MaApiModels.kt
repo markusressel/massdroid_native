@@ -124,6 +124,16 @@ data class ServerMediaItem(
             ?: return null
         return thumb.resolveUrl(wsClient)
     }
+
+    /** Image with album fallback (for tracks). */
+    fun resolveImageWithAlbumFallback(wsClient: MaWebSocketClient): String? =
+        resolveImageUrl(wsClient) ?: album?.resolveImageUrl(wsClient)
+
+    /** Image with album fallback, then URI-based imageproxy as last resort. */
+    fun resolveImageWithUriFallback(wsClient: MaWebSocketClient): String? =
+        resolveImageUrl(wsClient)
+            ?: album?.resolveImageUrl(wsClient)
+            ?: wsClient.getImageUrl(uri)
 }
 
 @Serializable
@@ -149,7 +159,7 @@ data class MediaItemImage(
     @SerialName("remotely_accessible") val remotelyAccessible: Boolean = false
 )
 
-private fun MediaItemImage.resolveUrl(wsClient: MaWebSocketClient): String? {
+fun MediaItemImage.resolveUrl(wsClient: MaWebSocketClient): String? {
     val p = path.trim()
     if (p.isEmpty()) return null
     if (p.equals("none", ignoreCase = true) || p.equals("null", ignoreCase = true)) return null

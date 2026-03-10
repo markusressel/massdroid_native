@@ -179,6 +179,7 @@ class PlayerRepositoryImpl @Inject constructor(
                     if (player.playerId == selectedPlayerId) {
                         if (!player.available) {
                             Log.d(TAG, "Selected player became unavailable, deselecting: ${player.displayName}")
+                            pendingRestoredPlayerId = player.playerId
                             selectedPlayerId = null
                             _selectedPlayer.value = null
                             _queueState.value = null
@@ -187,7 +188,6 @@ class PlayerRepositoryImpl @Inject constructor(
                             favoriteOverride = null
                             favoriteOverrideUri = null
                             stopPositionTicker()
-                            scope.launch { settingsRepository.setSelectedPlayerId(null) }
                         } else {
                             _selectedPlayer.value = player
                             val wasPlaying = isPlaying
@@ -341,8 +341,7 @@ class PlayerRepositoryImpl @Inject constructor(
                 duration = mediaItem.duration,
                 artistNames = mediaItem.artists?.joinToString(", ") { it.name } ?: "",
                 albumName = mediaItem.album?.name ?: "",
-                imageUrl = mediaItem.resolveImageUrl(wsClient)
-                    ?: mediaItem.album?.resolveImageUrl(wsClient),
+                imageUrl = mediaItem.resolveImageWithAlbumFallback(wsClient),
                 artistItemId = mediaItem.artists?.firstOrNull()?.itemId,
                 artistProvider = mediaItem.artists?.firstOrNull()?.provider,
                 albumItemId = mediaItem.album?.itemId,
@@ -1058,8 +1057,8 @@ fun ServerPlayer.toDomain(
             artist = it.artist ?: "",
             album = it.album ?: "",
             imageUrl = queueTrackImageUrl
-                ?: it.imageUrl
-                ?: it.image?.let { img -> if (img.remotelyAccessible) img.path else wsClient.getImageUrl(img.path, provider = img.imageProvider) },
+                ?: it.imageUrl?.let { url -> wsClient.rewriteImageProxyUrl(url) }
+                ?: it.image?.resolveUrl(wsClient),
             duration = it.duration ?: 0.0,
             elapsedTime = it.elapsedTime ?: 0.0,
             uri = it.uri
@@ -1093,8 +1092,7 @@ fun ServerQueue.toDomain(wsClient: MaWebSocketClient): QueueState = QueueState(
                     duration = mi.duration,
                     artistNames = mi.artists?.joinToString(", ") { it.name } ?: "",
                     albumName = mi.album?.name ?: "",
-                    imageUrl = mi.resolveImageUrl(wsClient)
-                        ?: mi.album?.resolveImageUrl(wsClient),
+                    imageUrl = mi.resolveImageWithAlbumFallback(wsClient),
                     favorite = mi.favorite,
                     artistItemId = mi.artists?.firstOrNull()?.itemId,
                     artistProvider = mi.artists?.firstOrNull()?.provider,
@@ -1119,7 +1117,7 @@ fun ServerQueue.toDomain(wsClient: MaWebSocketClient): QueueState = QueueState(
                 )
             },
             imageUrl = item.mediaItem?.resolveImageUrl(wsClient)
-                ?: item.image?.let { if (it.remotelyAccessible) it.path else wsClient.getImageUrl(it.path, provider = it.imageProvider) },
+                ?: item.image?.resolveUrl(wsClient),
             audioFormat = item.streamdetails?.audioFormat?.let { format ->
                 AudioFormatInfo(
                     contentType = format.contentType,

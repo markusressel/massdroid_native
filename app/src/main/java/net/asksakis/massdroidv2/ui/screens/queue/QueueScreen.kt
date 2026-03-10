@@ -71,6 +71,7 @@ import net.asksakis.massdroidv2.domain.model.QueueItem
 import net.asksakis.massdroidv2.domain.model.Player
 import net.asksakis.massdroidv2.domain.model.PlayerType
 import net.asksakis.massdroidv2.ui.components.MediaItemRow
+import net.asksakis.massdroidv2.ui.components.PlayerNameWithBadge
 import net.asksakis.massdroidv2.ui.components.SheetDefaults
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -94,6 +95,7 @@ fun QueueScreen(
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val currentQueueItemId by viewModel.currentQueueItemId.collectAsStateWithLifecycle()
     val players by viewModel.players.collectAsStateWithLifecycle()
+    val sendspinClientId by viewModel.sendspinClientId.collectAsStateWithLifecycle(initialValue = null)
     var actionSheetItem by remember { mutableStateOf<QueueActionItem?>(null) }
     var showQueueMenu by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -407,7 +409,12 @@ fun QueueScreen(
                 otherPlayers.forEach { target ->
                     ListItem(
                         colors = SheetDefaults.listItemColors(),
-                        headlineContent = { Text(target.displayName) },
+                        headlineContent = {
+                            PlayerNameWithBadge(
+                                name = target.displayName,
+                                isLocalPlayer = sendspinClientId != null && target.playerId == sendspinClientId
+                            )
+                        },
                         leadingContent = {
                             Icon(
                                 imageVector = queueTransferIcon(target),

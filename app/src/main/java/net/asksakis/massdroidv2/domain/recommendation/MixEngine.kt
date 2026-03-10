@@ -32,6 +32,8 @@ sealed class MixMode {
     data class GenreMix(
         val genre: String,
         val artistUris: List<String>,
+        val recentArtistScoreMap: Map<String, Double> = emptyMap(),
+        val daypartAffinityByArtist: Map<String, Double> = emptyMap(),
     ) : MixMode()
 }
 
@@ -81,6 +83,7 @@ class MixEngine @Inject constructor() {
             is MixMode.GenreMix -> emptyMap()
         }
         val targetGenre = (mode as? MixMode.GenreMix)?.let { fuzzyNormalizeGenre(it.genre) }
+        val noGenreConf = if (mode is MixMode.GenreMix) 0.30 else 0.58
 
         val seenTrackKeys = mutableSetOf<String>()
         val byArtistCount = mutableMapOf<String, Int>()
@@ -104,7 +107,7 @@ class MixEngine @Inject constructor() {
                 }
                 .mapNotNull { track ->
                     val genreScore = if (targetGenre != null) {
-                        val confidence = genreConfidence(targetGenre, track)
+                        val confidence = genreConfidence(targetGenre, track, noGenreConf)
                         if (confidence <= 0.0) return@mapNotNull null
                         confidence * 1.25
                     } else {
@@ -289,10 +292,12 @@ class MixEngine @Inject constructor() {
         val sorted = mode.artistUris
             .distinct()
             .sortedByDescending { artistUri ->
-                val base = (bllArtistScoreMap[artistUri] ?: 0.0) +
-                    (smartArtistScoreMap[artistUri] ?: 0.0) * 0.6 +
-                    (if (artistUri in favoriteArtistUris) GM_FAV_ARTIST_BONUS else 0.0)
-                base + random.nextDouble(-0.10, 0.10)
+                val bll = compressPreferenceScore(bllArtistScoreMap[artistUri] ?: 0.0)
+                val smart = (smartArtistScoreMap[artistUri] ?: 0.0) * 0.45
+                val recent = (mode.recentArtistScoreMap[artistUri] ?: 0.0) * RECENT_ARTIST_WEIGHT
+                val favBonus = if (artistUri in favoriteArtistUris) GM_FAV_ARTIST_BONUS else 0.0
+                val daypart = daypartBonus(mode.daypartAffinityByArtist[artistUri])
+                bll + smart + recent + favBonus + daypart + random.nextDouble(-0.10, 0.10)
             }
         Log.d(TAG, "GenreMix artistOrder: ${sorted.size} artists for genre='${mode.genre}'")
         return sorted
@@ -388,11 +393,15 @@ class MixEngine @Inject constructor() {
 
     // --- Genre matching (GenreMix) ---
 
-    private fun genreConfidence(targetGenre: String, track: Track): Double {
+    private fun genreConfidence(
+        targetGenre: String,
+        track: Track,
+        noGenreConfidence: Double = 0.58
+    ): Double {
         val trackGenres = track.genres.map(::fuzzyNormalizeGenre).filter { it.isNotBlank() }
         return when {
             trackGenres.any { genreMatches(targetGenre, it) } -> 1.0
-            trackGenres.isEmpty() -> 0.58
+            trackGenres.isEmpty() -> noGenreConfidence
             else -> 0.0
         }
     }

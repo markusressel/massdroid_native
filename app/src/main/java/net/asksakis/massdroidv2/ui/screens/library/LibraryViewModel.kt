@@ -344,7 +344,7 @@ class LibraryViewModel @Inject constructor(
                                 }.getOrNull().orEmpty()
                             }
                         }.awaitAll().flatten()
-                    }
+                    }.filter { it.uri.startsWith("library://") }
                     val seenUris = apiResults.map { it.uri }.toMutableSet()
                     apiResults + genreAlbums.filter { seenUris.add(it.uri) }
                 } else apiResults
@@ -399,7 +399,7 @@ class LibraryViewModel @Inject constructor(
                                 }.getOrNull().orEmpty()
                             }
                         }.awaitAll().flatten()
-                    }
+                    }.filter { it.uri.startsWith("library://") }
                     val seenUris = apiResults.map { it.uri }.toMutableSet()
                     apiResults + genreTracks.filter { seenUris.add(it.uri) }
                 } else apiResults

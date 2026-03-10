@@ -503,6 +503,13 @@ class MaWebSocketClient(
         return "${base}/imageproxy?path=$encodedPath&size=$size$providerParam"
     }
 
+    fun rewriteImageProxyUrl(url: String): String {
+        val proxyIdx = url.indexOf("/imageproxy?")
+        if (proxyIdx < 0) return url
+        val base = serverUrl?.trimEnd('/') ?: return url
+        return base + url.substring(proxyIdx)
+    }
+
     /** Expose current OkHttpClient so Coil can use same mTLS config */
     fun getHttpClient(): OkHttpClient = okHttpClient
 

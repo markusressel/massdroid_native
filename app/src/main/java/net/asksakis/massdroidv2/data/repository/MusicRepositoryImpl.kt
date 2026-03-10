@@ -406,7 +406,7 @@ class MusicRepositoryImpl @Inject constructor(
             provider = provider,
             name = name,
             uri = uri,
-            imageUrl = resolveImageUrl(wsClient) ?: wsClient.getImageUrl(uri),
+            imageUrl = resolveImageWithUriFallback(wsClient),
             favorite = favorite,
             description = metadata?.description,
             genres = metadata?.genres ?: emptyList()
@@ -421,7 +421,7 @@ class MusicRepositoryImpl @Inject constructor(
             name = name,
             uri = uri,
             artistNames = artists?.joinToString(", ") { it.name } ?: "",
-            imageUrl = resolveImageUrl(wsClient) ?: wsClient.getImageUrl(uri),
+            imageUrl = resolveImageWithUriFallback(wsClient),
             favorite = favorite,
             version = version,
             year = sanitizeYear(year),
@@ -443,9 +443,7 @@ class MusicRepositoryImpl @Inject constructor(
             duration = duration,
             artistNames = artists?.joinToString(", ") { it.name } ?: "",
             albumName = album?.name ?: "",
-            imageUrl = resolveImageUrl(wsClient)
-                ?: album?.resolveImageUrl(wsClient)
-                ?: wsClient.getImageUrl(uri),
+            imageUrl = resolveImageWithUriFallback(wsClient),
             favorite = favorite,
             position = position,
             artistItemId = artists?.firstOrNull()?.itemId,
@@ -497,7 +495,7 @@ class MusicRepositoryImpl @Inject constructor(
         duration = duration,
         track = mediaItem?.toTrack(),
         imageUrl = mediaItem?.resolveImageUrl(wsClient)
-            ?: image?.let { if (it.remotelyAccessible) it.path else wsClient.getImageUrl(it.path, provider = it.imageProvider) }
+            ?: image?.resolveUrl(wsClient)
     )
 
     private fun sanitizeYear(year: Int?): Int? = year?.takeIf { it > 0 }

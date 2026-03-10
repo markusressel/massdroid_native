@@ -24,6 +24,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import net.asksakis.massdroidv2.data.websocket.ConnectionState
 import net.asksakis.massdroidv2.ui.components.EqualizerBars
+import net.asksakis.massdroidv2.ui.components.PlayerNameWithBadge
 import net.asksakis.massdroidv2.ui.components.SheetDefaults
 import net.asksakis.massdroidv2.domain.model.CrossfadeMode
 import net.asksakis.massdroidv2.domain.model.PlaybackState
@@ -52,6 +53,7 @@ fun PlayersScreen(
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
     val isInitializing by viewModel.isInitializing.collectAsStateWithLifecycle()
     val suppressConnectionPrompt by viewModel.suppressConnectionPrompt.collectAsStateWithLifecycle()
+    val sendspinClientId by viewModel.sendspinClientId.collectAsStateWithLifecycle(initialValue = null)
     var volumeSliderValue by remember { mutableFloatStateOf(selectedPlayer?.volumeLevel?.toFloat() ?: 0f) }
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val topTitle = selectedPlayer?.displayName ?: "All Players"
@@ -216,6 +218,7 @@ fun PlayersScreen(
                             PlayerListItem(
                                 player = player,
                                 isSelected = player.playerId == selectedPlayer?.playerId,
+                                isLocalPlayer = sendspinClientId != null && player.playerId == sendspinClientId,
                                 onClick = { viewModel.selectPlayer(player) },
                                 onIconLongPress = { iconPickerPlayer = player },
                                 onQueueMenuClick = { queueMenuPlayer = player }
@@ -239,6 +242,7 @@ fun PlayersScreen(
                         PlayerQueueSheet(
                             player = player,
                             allPlayers = players.filter { it.available },
+                            sendspinClientId = sendspinClientId,
                             onPlayerSettings = {
                                 settingsPlayer = player
                                 queueMenuPlayer = null
@@ -275,12 +279,15 @@ fun PlayersScreen(
 private fun PlayerListItem(
     player: Player,
     isSelected: Boolean,
+    isLocalPlayer: Boolean = false,
     onClick: () -> Unit,
     onIconLongPress: () -> Unit,
     onQueueMenuClick: () -> Unit
 ) {
     ListItem(
-        headlineContent = { Text(player.displayName) },
+        headlineContent = {
+            PlayerNameWithBadge(name = player.displayName, isLocalPlayer = isLocalPlayer)
+        },
         supportingContent = {
             val stateText = when (player.state) {
                 PlaybackState.PLAYING -> player.currentMedia?.let { "${it.title} - ${it.artist}" } ?: "Playing"
@@ -334,6 +341,7 @@ private fun PlayerListItem(
 private fun PlayerQueueSheet(
     player: Player,
     allPlayers: List<Player>,
+    sendspinClientId: String?,
     onPlayerSettings: () -> Unit,
     onClearQueue: () -> Unit,
     onTransferQueue: (targetId: String) -> Unit,
@@ -406,7 +414,12 @@ private fun PlayerQueueSheet(
                 otherPlayers.forEach { target ->
                     ListItem(
                         colors = SheetDefaults.listItemColors(),
-                        headlineContent = { Text(target.displayName) },
+                        headlineContent = {
+                            PlayerNameWithBadge(
+                                name = target.displayName,
+                                isLocalPlayer = sendspinClientId != null && target.playerId == sendspinClientId
+                            )
+                        },
                         leadingContent = {
                             PlayerIcon(
                                 player = target,
