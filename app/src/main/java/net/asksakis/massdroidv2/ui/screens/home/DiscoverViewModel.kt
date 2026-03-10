@@ -79,8 +79,8 @@ private const val DAYPART_GENRE_BOOST_WEIGHT = 2.0
 private const val SMART_MIX_MIN_TRACKS = 8
 private const val SMART_MIX_FAVORITES_QUERY_LIMIT = 500
 private const val ARTIST_TRACK_CACHE_TTL_MS = 12 * 60 * 60 * 1000L
-private const val GENRE_RADIO_DISCOVERY_SEEDS = 6
-private const val GENRE_RADIO_SIMILAR_RESOLVE_LIMIT = 3
+private const val GENRE_RADIO_DISCOVERY_SEEDS = 10
+private const val GENRE_RADIO_SIMILAR_RESOLVE_LIMIT = 5
 private const val GENRE_RADIO_SPAM_WINDOW_MS = 1_500L
 private const val GENRE_RADIO_START_WAIT_TIMEOUT_MS = 8_000L
 private const val CONNECTION_PING_SAMPLES = 3
@@ -968,7 +968,7 @@ class DiscoverViewModel @Inject constructor(
             }
             for (deferred in deferreds) {
                 for (similar in deferred.await()) {
-                    if (similar.name !in libraryNames && similar.matchScore >= 0.3) {
+                    if (similar.name !in libraryNames && similar.matchScore >= 0.15) {
                         discoveryNames.add(similar.name)
                     }
                 }
@@ -1041,7 +1041,7 @@ class DiscoverViewModel @Inject constructor(
             }
             for (deferred in deferreds) {
                 for (similar in deferred.await()) {
-                    if (similar.name !in libraryNames && similar.matchScore >= 0.3) {
+                    if (similar.name !in libraryNames && similar.matchScore >= 0.15) {
                         discoveryNames.add(similar.name)
                     }
                 }
@@ -1169,21 +1169,23 @@ class DiscoverViewModel @Inject constructor(
             randomSeed = System.currentTimeMillis() + 37L
         )
 
+        if (trackUris.size < GENRE_MIX_MIN_QUEUE_SIZE) {
+            Log.w(TAG, "startLocalGenreMix: insufficient queue for genre='$genre'")
+            return false
+        }
+
         Log.d(
             TAG,
             "startLocalGenreMix: genre='$genre', artists=${rankedArtists.size}, " +
                 "trackPools=${tracksByArtist.size}, built=${trackUris.size}"
         )
-        if (trackUris.size < GENRE_MIX_MIN_QUEUE_SIZE) {
-            Log.w(TAG, "startLocalGenreMix: insufficient queue for genre='$genre'")
-            return false
-        }
 
         playerRepository.setQueueFilterMode(
             queueId,
             PlayerRepository.QueueFilterMode.RADIO_SMART
         )
         musicRepository.playMedia(queueId, trackUris, option = "replace")
+        musicRepository.playQueueIndex(queueId, 0)
         return true
     }
 
