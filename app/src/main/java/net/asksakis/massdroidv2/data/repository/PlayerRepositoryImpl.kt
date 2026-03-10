@@ -244,7 +244,6 @@ class PlayerRepositoryImpl @Inject constructor(
                         _queueState.value = domainState
                         trackDuration = serverQueue.currentItem?.duration ?: 0.0
                         updatePosition(serverQueue.elapsedTime)
-                        _queueItemsChanged.tryEmit(serverQueue.queueId)
                     }
                 }
                 EventType.QUEUE_ITEMS_UPDATED -> {
@@ -1038,7 +1037,7 @@ fun ServerPlayer.toDomain(
             album = it.album ?: "",
             imageUrl = queueTrackImageUrl
                 ?: it.imageUrl
-                ?: it.image?.path?.let { path -> wsClient.getImageUrl(path) },
+                ?: it.image?.let { img -> if (img.remotelyAccessible) img.path else wsClient.getImageUrl(img.path, provider = img.imageProvider) },
             duration = it.duration ?: 0.0,
             elapsedTime = it.elapsedTime ?: 0.0,
             uri = it.uri
@@ -1098,7 +1097,7 @@ fun ServerQueue.toDomain(wsClient: MaWebSocketClient): QueueState = QueueState(
                 )
             },
             imageUrl = item.mediaItem?.resolveImageUrl(wsClient)
-                ?: item.image?.let { if (it.remotelyAccessible) it.path else wsClient.getImageUrl(it.path) },
+                ?: item.image?.let { if (it.remotelyAccessible) it.path else wsClient.getImageUrl(it.path, provider = it.imageProvider) },
             audioFormat = item.streamdetails?.audioFormat?.let { format ->
                 AudioFormatInfo(
                     contentType = format.contentType,

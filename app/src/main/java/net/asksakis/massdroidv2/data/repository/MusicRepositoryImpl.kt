@@ -497,7 +497,7 @@ class MusicRepositoryImpl @Inject constructor(
         duration = duration,
         track = mediaItem?.toTrack(),
         imageUrl = mediaItem?.resolveImageUrl(wsClient)
-            ?: image?.let { if (it.remotelyAccessible) it.path else wsClient.getImageUrl(it.path) }
+            ?: image?.let { if (it.remotelyAccessible) it.path else wsClient.getImageUrl(it.path, provider = it.imageProvider) }
     )
 
     private fun sanitizeYear(year: Int?): Int? = year?.takeIf { it > 0 }

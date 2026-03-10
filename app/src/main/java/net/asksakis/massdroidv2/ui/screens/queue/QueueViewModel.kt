@@ -76,7 +76,11 @@ class QueueViewModel @Inject constructor(
             try {
                 val items = musicRepository.getQueueItems(id)
                 if (generation != queueLoadGeneration || queueId != id) return@launch
-                _queueItems.value = items
+                val oldIds = _queueItems.value.map { it.queueItemId }
+                val newIds = items.map { it.queueItemId }
+                if (oldIds != newIds) {
+                    _queueItems.value = items
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "loadQueue failed: ${e.message}")
             } finally {

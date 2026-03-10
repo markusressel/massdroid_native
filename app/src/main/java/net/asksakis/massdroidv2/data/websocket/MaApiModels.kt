@@ -153,7 +153,8 @@ private fun MediaItemImage.resolveUrl(wsClient: MaWebSocketClient): String? {
     val p = path.trim()
     if (p.isEmpty()) return null
     if (p.equals("none", ignoreCase = true) || p.equals("null", ignoreCase = true)) return null
-    return wsClient.getImageUrl(p) ?: p
+    if (remotelyAccessible) return p
+    return wsClient.getImageUrl(p, provider = imageProvider) ?: p
 }
 
 object EventType {

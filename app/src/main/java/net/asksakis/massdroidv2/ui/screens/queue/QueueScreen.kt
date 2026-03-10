@@ -55,6 +55,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -101,11 +102,28 @@ fun QueueScreen(
     var dragStartIndex by remember { mutableIntStateOf(-1) }
     var draggingQueueItemId by remember { mutableStateOf<String?>(null) }
     val lazyListState = rememberLazyListState()
+    var hasScrolledInitially by remember { mutableStateOf(false) }
+    val effectiveItems = if (draggingQueueItemId != null) displayItems else items
 
-    LaunchedEffect(items, draggingQueueItemId) {
-        if (draggingQueueItemId == null) {
-            displayItems.clear()
-            displayItems.addAll(items)
+    LaunchedEffect(items) {
+        if (!hasScrolledInitially && items.isNotEmpty()) {
+            val idx = items.indexOfFirst { it.queueItemId == currentQueueItemId }
+            if (idx >= 0) {
+                lazyListState.scrollToItem(index = idx, scrollOffset = -200)
+                hasScrolledInitially = true
+            }
+        }
+    }
+
+    LaunchedEffect(currentQueueItemId) {
+        if (hasScrolledInitially) {
+            val idx = items.indexOfFirst { it.queueItemId == currentQueueItemId }
+            if (idx >= 0) {
+                val visible = lazyListState.layoutInfo.visibleItemsInfo.any { it.index == idx }
+                if (!visible) {
+                    lazyListState.animateScrollToItem(index = idx, scrollOffset = -200)
+                }
+            }
         }
     }
 
@@ -168,7 +186,9 @@ fun QueueScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                itemsIndexed(displayItems, key = { _, item -> item.queueItemId }) { index, item ->
+                val currentIndex = effectiveItems.indexOfFirst { it.queueItemId == currentQueueItemId }
+                itemsIndexed(effectiveItems, key = { _, item -> item.queueItemId }) { index, item ->
+                    val isPlayed = currentIndex >= 0 && index < currentIndex
                     ReorderableItem(
                         state = reorderableLazyListState,
                         key = item.queueItemId
@@ -181,7 +201,9 @@ fun QueueScreen(
                             } else {
                                 Color.Transparent
                             },
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            modifier = Modifier
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .then(if (isPlayed) Modifier.alpha(0.5f) else Modifier)
                         ) {
                             MediaItemRow(
                                 title = item.track?.name ?: item.name,
@@ -217,6 +239,8 @@ fun QueueScreen(
                                             .longPressDraggableHandle(
                                                 onDragStarted = {
                                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    displayItems.clear()
+                                                    displayItems.addAll(items)
                                                     dragStartIndex = index
                                                     draggingQueueItemId = item.queueItemId
                                                 },

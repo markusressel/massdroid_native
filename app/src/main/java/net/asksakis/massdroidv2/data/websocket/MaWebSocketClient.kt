@@ -495,10 +495,12 @@ class MaWebSocketClient(
         partialResults.clear()
     }
 
-    fun getImageUrl(imagePath: String, size: Int = 500): String? {
+    fun getImageUrl(imagePath: String, size: Int = 500, provider: String? = null): String? {
         // Use the user-configured server URL (external), not the internal base_url
         val base = serverUrl?.trimEnd('/') ?: return null
-        return "${base}/imageproxy?path=${java.net.URLEncoder.encode(imagePath, "UTF-8")}&size=$size"
+        val encodedPath = java.net.URLEncoder.encode(imagePath, "UTF-8")
+        val providerParam = if (!provider.isNullOrEmpty()) "&provider=$provider" else ""
+        return "${base}/imageproxy?path=$encodedPath&size=$size$providerParam"
     }
 
     /** Expose current OkHttpClient so Coil can use same mTLS config */
