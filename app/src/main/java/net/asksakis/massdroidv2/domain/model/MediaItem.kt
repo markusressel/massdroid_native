@@ -66,11 +66,22 @@ data class Playlist(
     val isEditable: Boolean = true
 )
 
+@Serializable
+data class Radio(
+    val itemId: String,
+    val provider: String,
+    val name: String,
+    val uri: String,
+    val imageUrl: String? = null,
+    val favorite: Boolean = false
+)
+
 enum class MediaType(val apiValue: String) {
     TRACK("track"),
     ALBUM("album"),
     ARTIST("artist"),
-    PLAYLIST("playlist");
+    PLAYLIST("playlist"),
+    RADIO("radio");
 
     companion object {
         fun fromApi(value: String): MediaType? = entries.find { it.apiValue == value }

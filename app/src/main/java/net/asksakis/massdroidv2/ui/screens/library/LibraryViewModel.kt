@@ -57,6 +57,9 @@ class LibraryViewModel @Inject constructor(
     private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
     val playlists: StateFlow<List<Playlist>> = _playlists.asStateFlow()
 
+    private val _radios = MutableStateFlow<List<Radio>>(emptyList())
+    val radios: StateFlow<List<Radio>> = _radios.asStateFlow()
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -103,6 +106,7 @@ class LibraryViewModel @Inject constructor(
     private var hasMoreAlbums = true
     private var hasMoreTracks = true
     private var hasMorePlaylists = true
+    private var hasMoreRadios = true
 
     private val _settingsLoaded = MutableStateFlow(false)
     val settingsLoaded: StateFlow<Boolean> = _settingsLoaded.asStateFlow()
@@ -143,6 +147,7 @@ class LibraryViewModel @Inject constructor(
                             1 -> _albums.value.isEmpty()
                             2 -> _tracks.value.isEmpty()
                             3 -> _playlists.value.isEmpty()
+                            4 -> _radios.value.isEmpty()
                             else -> false
                         }
                         if (isEmpty) reloadCurrentTab()
@@ -252,6 +257,7 @@ class LibraryViewModel @Inject constructor(
             1 -> loadAlbums()
             2 -> loadTracks()
             3 -> loadPlaylists()
+            4 -> loadRadios()
         }
     }
 
@@ -459,6 +465,56 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    fun loadRadios() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val query = currentSearch
+                val libraryDeferred = async {
+                    musicRepository.getRadios(
+                        search = query, limit = PAGE_SIZE, offset = 0, orderBy = currentOrderBy, favoriteOnly = currentFavoriteOnly
+                    )
+                }
+                val searchDeferred = if (query != null && query.length >= 2) {
+                    async {
+                        runCatching {
+                            musicRepository.search(query, mediaTypes = listOf(MediaType.RADIO), limit = 25).radios
+                        }.getOrElse { emptyList() }
+                    }
+                } else null
+
+                val libraryResults = libraryDeferred.await()
+                val searchResults = searchDeferred?.await().orEmpty()
+
+                val merged = if (searchResults.isNotEmpty()) {
+                    val seenUris = libraryResults.map { it.uri }.toMutableSet()
+                    libraryResults + searchResults.filter { seenUris.add(it.uri) }
+                } else libraryResults
+
+                _radios.value = merged
+                hasMoreRadios = libraryResults.size >= PAGE_SIZE
+            } catch (_: Exception) {}
+            _isLoading.value = false
+        }
+    }
+
+    fun loadMoreRadios() {
+        if (_isLoadingMore.value || !hasMoreRadios) return
+        _isLoadingMore.value = true
+        viewModelScope.launch {
+            try {
+                val items = musicRepository.getRadios(
+                    search = currentSearch, limit = PAGE_SIZE, offset = _radios.value.size, orderBy = currentOrderBy, favoriteOnly = currentFavoriteOnly
+                )
+                _radios.value = _radios.value + items
+                hasMoreRadios = items.size >= PAGE_SIZE
+            } catch (_: Exception) {
+            } finally {
+                _isLoadingMore.value = false
+            }
+        }
+    }
+
     fun playTrack(track: Track) {
         playUri(track.uri)
     }
@@ -553,6 +609,9 @@ class LibraryViewModel @Inject constructor(
                         list.map { if (it.itemId == itemId) it.copy(favorite = !currentFavorite) else it }
                     }
                     MediaType.PLAYLIST -> _playlists.update { list ->
+                        list.map { if (it.itemId == itemId) it.copy(favorite = !currentFavorite) else it }
+                    }
+                    MediaType.RADIO -> _radios.update { list ->
                         list.map { if (it.itemId == itemId) it.copy(favorite = !currentFavorite) else it }
                     }
                 }

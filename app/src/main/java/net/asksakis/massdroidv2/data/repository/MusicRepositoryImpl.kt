@@ -65,6 +65,14 @@ class MusicRepositoryImpl @Inject constructor(
         return parseMediaItems(result).mapNotNull { it.toPlaylist() }
     }
 
+    override suspend fun getRadios(search: String?, limit: Int, offset: Int, orderBy: String?, favoriteOnly: Boolean): List<Radio> {
+        val result = wsClient.sendCommand(
+            MaCommands.Music.RADIOS_LIBRARY_ITEMS,
+            LibraryItemsArgs(search, limit, offset, orderBy, favoriteOnly)
+        )
+        return parseMediaItems(result).mapNotNull { it.toRadio() }
+    }
+
     override suspend fun getArtist(itemId: String, provider: String, lazy: Boolean): Artist? {
         val result = wsClient.sendCommand(
             MaCommands.Music.ARTISTS_GET,
@@ -128,7 +136,8 @@ class MusicRepositoryImpl @Inject constructor(
             artists = obj["artists"]?.let { parseMediaItems(it) }?.mapNotNull { it.toArtist() } ?: emptyList(),
             albums = obj["albums"]?.let { parseMediaItems(it) }?.mapNotNull { it.toAlbum() } ?: emptyList(),
             tracks = obj["tracks"]?.let { parseMediaItems(it) }?.mapNotNull { it.toTrack() } ?: emptyList(),
-            playlists = obj["playlists"]?.let { parseMediaItems(it) }?.mapNotNull { it.toPlaylist() } ?: emptyList()
+            playlists = obj["playlists"]?.let { parseMediaItems(it) }?.mapNotNull { it.toPlaylist() } ?: emptyList(),
+            radios = obj["radio"]?.let { parseMediaItems(it) }?.mapNotNull { it.toRadio() } ?: emptyList()
         )
     }
 
@@ -494,6 +503,18 @@ class MusicRepositoryImpl @Inject constructor(
             imageUrl = resolveImageUrl(wsClient),
             favorite = favorite,
             isEditable = isEditable != false
+        )
+    }
+
+    private fun ServerMediaItem.toRadio(): Radio? {
+        if (mediaType.isNotEmpty() && mediaType != "radio") return null
+        return Radio(
+            itemId = itemId,
+            provider = provider,
+            name = name,
+            uri = uri,
+            imageUrl = resolveImageUrl(wsClient),
+            favorite = favorite
         )
     }
 

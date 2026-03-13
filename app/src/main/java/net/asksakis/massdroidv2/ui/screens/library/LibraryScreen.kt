@@ -40,12 +40,13 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val selectedTab by viewModel.currentTab.collectAsStateWithLifecycle()
-    val tabs = listOf("Artists", "Albums", "Tracks", "Playlists")
+    val tabs = listOf("Artists", "Albums", "Tracks", "Playlists", "Radios")
 
     val artists by viewModel.artists.collectAsStateWithLifecycle()
     val albums by viewModel.albums.collectAsStateWithLifecycle()
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val radios by viewModel.radios.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -69,6 +70,7 @@ fun LibraryScreen(
             1 -> if (albums.isEmpty()) viewModel.loadAlbums()
             2 -> if (tracks.isEmpty()) viewModel.loadTracks()
             3 -> if (playlists.isEmpty()) viewModel.loadPlaylists()
+            4 -> if (radios.isEmpty()) viewModel.loadRadios()
         }
     }
 
@@ -164,6 +166,7 @@ fun LibraryScreen(
                         1 -> "Search albums..."
                         2 -> "Search tracks..."
                         3 -> "Search playlists..."
+                        4 -> "Search radios..."
                         else -> "Search library..."
                     })
                 },
@@ -186,7 +189,7 @@ fun LibraryScreen(
             )
 
             // Tabs
-            TabRow(selectedTabIndex = selectedTab) {
+            ScrollableTabRow(selectedTabIndex = selectedTab, edgePadding = 0.dp) {
                 tabs.forEachIndexed { index, title ->
                     Tab(
                         selected = selectedTab == index,
@@ -361,6 +364,30 @@ fun LibraryScreen(
                                 favorite = playlist.favorite,
                                 mediaType = MediaType.PLAYLIST,
                                 itemId = playlist.itemId
+                            )
+                        },
+                        onPlayClick = { viewModel.quickPlay(it.uri) }
+                    )
+                    4 -> MediaList(
+                        items = radios,
+                        displayMode = displayMode,
+                        isLoadingMore = isLoadingMore,
+                        onLoadMore = { viewModel.loadMoreRadios() },
+                        key = { it.uri },
+                        title = { it.name },
+                        subtitle = { "" },
+                        imageUrl = { it.imageUrl },
+                        favorite = { it.favorite },
+                        onClick = { viewModel.quickPlay(it.uri) },
+                        onLongClick = { radio ->
+                            actionSheetItem = ActionSheetItem(
+                                title = radio.name,
+                                subtitle = "",
+                                uri = radio.uri,
+                                imageUrl = radio.imageUrl,
+                                favorite = radio.favorite,
+                                mediaType = MediaType.RADIO,
+                                itemId = radio.itemId
                             )
                         },
                         onPlayClick = { viewModel.quickPlay(it.uri) }

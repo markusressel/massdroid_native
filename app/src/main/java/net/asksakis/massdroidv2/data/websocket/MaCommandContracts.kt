@@ -20,6 +20,7 @@ object MaCommands {
         const val TRACKS_LIBRARY_ITEMS = "music/tracks/library_items"
         const val TRACKS_GET = "music/tracks/get"
         const val PLAYLISTS_LIBRARY_ITEMS = "music/playlists/library_items"
+        const val RADIOS_LIBRARY_ITEMS = "music/radios/library_items"
         const val PLAYLISTS_ADD_TRACKS = "music/playlists/add_playlist_tracks"
         const val PLAYLISTS_REMOVE_TRACKS = "music/playlists/remove_playlist_tracks"
         const val ARTISTS_GET = "music/artists/get"
