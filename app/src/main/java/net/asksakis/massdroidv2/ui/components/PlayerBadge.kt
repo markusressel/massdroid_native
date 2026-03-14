@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -19,7 +20,8 @@ import androidx.compose.ui.unit.dp
 fun PlayerNameWithBadge(
     name: String,
     isLocalPlayer: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    fontWeight: FontWeight? = null
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -29,7 +31,8 @@ fun PlayerNameWithBadge(
             text = name,
             modifier = Modifier.weight(1f, fill = false),
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            fontWeight = fontWeight
         )
         if (isLocalPlayer) {
             Spacer(modifier = Modifier.width(8.dp))
