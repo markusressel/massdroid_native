@@ -71,9 +71,12 @@ import coil.compose.AsyncImage
 import net.asksakis.massdroidv2.domain.model.QueueItem
 import net.asksakis.massdroidv2.domain.model.Player
 import net.asksakis.massdroidv2.domain.model.PlayerType
+import net.asksakis.massdroidv2.domain.model.PlaybackState
 import net.asksakis.massdroidv2.ui.components.MediaItemRow
 import net.asksakis.massdroidv2.ui.components.PlayerNameWithBadge
 import net.asksakis.massdroidv2.ui.components.SheetDefaults
+import net.asksakis.massdroidv2.ui.components.SoundWaveIcon
+import net.asksakis.massdroidv2.ui.screens.home.PlayerIcon
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -400,7 +403,7 @@ fun QueueScreen(
             Column(modifier = Modifier.padding(bottom = 24.dp)) {
                 Column {
                     SheetDefaults.HeaderTitle(
-                        text = "Transfer Queue To",
+                        text = "Transfer queue to",
                         modifier = Modifier.padding(
                             horizontal = SheetDefaults.HeaderHorizontalPadding,
                             vertical = SheetDefaults.HeaderVerticalPadding
@@ -409,6 +412,9 @@ fun QueueScreen(
                     HorizontalDivider(modifier = Modifier.padding(top = 6.dp, bottom = 4.dp))
                 }
                 otherPlayers.forEach { target ->
+                    val isPlaying = target.state == PlaybackState.PLAYING
+                    val iconTint = if (isPlaying) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
                     ListItem(
                         colors = SheetDefaults.listItemColors(),
                         headlineContent = {
@@ -418,11 +424,16 @@ fun QueueScreen(
                             )
                         },
                         leadingContent = {
-                            Icon(
-                                imageVector = queueTransferIcon(target),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            SoundWaveIcon(
+                                isPlaying = isPlaying,
+                                waveColor = iconTint
+                            ) {
+                                PlayerIcon(
+                                    player = target,
+                                    modifier = Modifier.size(32.dp),
+                                    tint = iconTint
+                                )
+                            }
                         },
                         modifier = Modifier.clickable {
                             viewModel.transferQueue(target.playerId)

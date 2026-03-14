@@ -248,7 +248,9 @@ class DiscoverViewModel @Inject constructor(
             ),
             isLoading = false
         )
-        cacheStale = discoverCache.isStale(cached)
+        val hasMissingImages = cached.discoverAlbums.any { it.imageUrl == null } ||
+            cached.serverFolders.any { f -> f.items.albums.any { it.imageUrl == null } }
+        cacheStale = discoverCache.isStale(cached) || hasMissingImages
     }
 
     private suspend fun observeConnection() {

@@ -332,7 +332,7 @@ private fun PlayerQueueSheet(
                 ListItem(
                     colors = SheetDefaults.listItemColors(),
                     headlineContent = {
-                        Text("Transfer queue to:", style = MaterialTheme.typography.labelMedium)
+                        Text("Transfer queue to", style = MaterialTheme.typography.labelMedium)
                     },
                     leadingContent = {
                         IconButton(onClick = { showTransferList = false }) {
@@ -341,6 +341,9 @@ private fun PlayerQueueSheet(
                     }
                 )
                 otherPlayers.forEach { target ->
+                    val isPlaying = target.state == PlaybackState.PLAYING
+                    val iconTint = if (isPlaying) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
                     ListItem(
                         colors = SheetDefaults.listItemColors(),
                         headlineContent = {
@@ -350,11 +353,16 @@ private fun PlayerQueueSheet(
                             )
                         },
                         leadingContent = {
-                            PlayerIcon(
-                                player = target,
-                                modifier = Modifier.size(32.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            SoundWaveIcon(
+                                isPlaying = isPlaying,
+                                waveColor = iconTint
+                            ) {
+                                PlayerIcon(
+                                    player = target,
+                                    modifier = Modifier.size(32.dp),
+                                    tint = iconTint
+                                )
+                            }
                         },
                         modifier = Modifier.clickable { onTransferQueue(target.playerId) }
                     )
@@ -625,7 +633,7 @@ private fun ConnectionPrompt(
 }
 
 @Composable
-private fun PlayerIcon(
+internal fun PlayerIcon(
     player: Player,
     modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant
