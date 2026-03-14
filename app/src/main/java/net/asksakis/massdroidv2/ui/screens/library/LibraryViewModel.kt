@@ -77,6 +77,14 @@ class LibraryViewModel @Inject constructor(
 
     private var searchJob: Job? = null
     private var mediaEventJob: Job? = null
+    private var pendingReload = false
+
+    fun onScreenVisible() {
+        if (pendingReload) {
+            pendingReload = false
+            reloadCurrentTab()
+        }
+    }
     private val _currentTab = MutableStateFlow(0)
     val currentTab: StateFlow<Int> = _currentTab.asStateFlow()
 
@@ -158,13 +166,11 @@ class LibraryViewModel @Inject constructor(
             wsClient.events.collect { event ->
                 when (event.event) {
                     EventType.MEDIA_ITEM_ADDED,
-                    EventType.MEDIA_ITEM_UPDATED,
                     EventType.MEDIA_ITEM_DELETED -> {
-                        mediaEventJob?.cancel()
-                        mediaEventJob = launch {
-                            delay(500)
-                            reloadCurrentTab()
-                        }
+                        pendingReload = true
+                    }
+                    EventType.MEDIA_ITEM_UPDATED -> {
+                        // Skip: updates don't change list structure, avoid scroll reset
                     }
                 }
             }
@@ -830,7 +836,7 @@ class ArtistDetailViewModel @Inject constructor(
             val lastFmGenres = lastFmGenreResolver.resolve(artistName)
             if (lastFmGenres.isNotEmpty()) {
                 _artist.update { current ->
-                    val merged = (current?.genres.orEmpty() + lastFmGenres).distinct()
+                    val merged = (current?.genres.orEmpty() + lastFmGenres).distinctBy { it.lowercase() }
                     current?.copy(genres = merged)
                 }
             }
@@ -1078,7 +1084,7 @@ class AlbumDetailViewModel @Inject constructor(
             val lastFmGenres = lastFmGenreResolver.resolve(artistName)
             if (lastFmGenres.isNotEmpty()) {
                 _album.update { current ->
-                    val merged = (current?.genres.orEmpty() + lastFmGenres).distinct()
+                    val merged = (current?.genres.orEmpty() + lastFmGenres).distinctBy { it.lowercase() }
                     current?.copy(genres = merged)
                 }
             }

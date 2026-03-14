@@ -395,7 +395,6 @@ class PlaybackService : MediaLibraryService() {
                     isMuted = player.volumeMuted,
                     isRemotePlayback = !isSendspinPlayer
                 )
-                updateConnectionNotification()
             }
         }
     }
