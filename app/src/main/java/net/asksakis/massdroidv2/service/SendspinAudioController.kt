@@ -135,7 +135,6 @@ class SendspinAudioController(
         setupAudioFocus()
         requestAudioFocus()
         registerNoisyReceiver()
-        acquireLocks()
 
         // Immediately start sendspin connection
         scope.launch { ensureSendspinConnected() }
@@ -149,7 +148,11 @@ class SendspinAudioController(
                 isReady = state == SendspinState.SYNCING || state == SendspinState.STREAMING
                 Log.d(TAG, "Sendspin state: $state, isStreaming=$isStreaming, isReady=$isReady")
 
+                if (!wasStreaming && isStreaming) {
+                    acquireLocks()
+                }
                 if (wasStreaming && !isStreaming) {
+                    releaseLocks()
                     val sendspinWasPlaying = playerRepository.players.value
                         .firstOrNull { it.playerId == sendspinPlayerId }
                         ?.state == PlaybackState.PLAYING
