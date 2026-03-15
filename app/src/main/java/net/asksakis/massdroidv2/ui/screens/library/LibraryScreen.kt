@@ -77,6 +77,7 @@ fun LibraryScreen(
     val settingsLoaded by viewModel.settingsLoaded.collectAsStateWithLifecycle()
     val blockedArtistUris by viewModel.blockedArtistUris.collectAsStateWithLifecycle()
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     // Reload pending changes when screen becomes visible again
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -136,6 +137,12 @@ fun LibraryScreen(
                         }
                     },
                     singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                        onSearch = { focusManager.clearFocus() }
+                    ),
                     textStyle = MaterialTheme.typography.labelSmall,
                     shape = MaterialTheme.shapes.extraLarge,
                     colors = TextFieldDefaults.colors(
@@ -235,6 +242,12 @@ fun LibraryScreen(
                     }
                 },
                 singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                    onSearch = { focusManager.clearFocus() }
+                ),
                 shape = MaterialTheme.shapes.extraLarge,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,

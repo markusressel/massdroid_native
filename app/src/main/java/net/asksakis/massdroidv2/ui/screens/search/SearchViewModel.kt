@@ -29,6 +29,11 @@ class SearchViewModel @Inject constructor(
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
 
+    private val _gridMode = MutableStateFlow(false)
+    val gridMode: StateFlow<Boolean> = _gridMode.asStateFlow()
+
+    fun toggleGridMode() { _gridMode.value = !_gridMode.value }
+
     private val _error = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val error: SharedFlow<String> = _error.asSharedFlow()
 

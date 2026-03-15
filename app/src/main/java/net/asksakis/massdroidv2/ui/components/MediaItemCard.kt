@@ -44,7 +44,8 @@ fun MediaItemRow(
     dragHandle: (@Composable () -> Unit)? = null,
     showEqualizer: Boolean = false,
     providerDomains: List<String> = emptyList(),
-    providerCache: ProviderManifestCache? = null
+    providerCache: ProviderManifestCache? = null,
+    fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
     val context = LocalContext.current
     val imageModel = remember(imageUrl, context) {
@@ -95,15 +96,29 @@ fun MediaItemRow(
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(MaterialTheme.shapes.small),
+                    .clip(MaterialTheme.shapes.small)
+                    .then(
+                        if (imageUrl.isNullOrBlank() && fallbackIcon != null)
+                            Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
+                        else Modifier
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = imageModel,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
+                if (imageUrl.isNullOrBlank() && fallbackIcon != null) {
+                    Icon(
+                        fallbackIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    AsyncImage(
+                        model = imageModel,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
                 if (showEqualizer) {
                     Box(
                         modifier = Modifier
@@ -178,7 +193,8 @@ fun MediaItemGrid(
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
     providerDomains: List<String> = emptyList(),
-    providerCache: ProviderManifestCache? = null
+    providerCache: ProviderManifestCache? = null,
+    fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
     val context = LocalContext.current
     val imageModel = remember(imageUrl, context) {
@@ -198,15 +214,33 @@ fun MediaItemGrid(
         )
     ) {
         Box {
-            AsyncImage(
-                model = imageModel,
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .clip(MaterialTheme.shapes.medium),
-                contentScale = ContentScale.Crop
-            )
+            if (imageUrl.isNullOrBlank() && fallbackIcon != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        fallbackIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                AsyncImage(
+                    model = imageModel,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(MaterialTheme.shapes.medium),
+                    contentScale = ContentScale.Crop
+                )
+            }
             if (providerCache != null && providerDomains.isNotEmpty()) {
                 ProviderBadges(
                     providerDomains = providerDomains,
