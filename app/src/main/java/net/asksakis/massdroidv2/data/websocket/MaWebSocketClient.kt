@@ -521,7 +521,7 @@ class MaWebSocketClient(
         .build()
 
     private fun isPrivateHost(host: String): Boolean {
-        if (host == "localhost" || host.endsWith(".local")) return true
+        if (host == "localhost" || host.endsWith(".local") || host.endsWith(".ts.net")) return true
         val parts = host.split(".")
         if (parts.size != 4) return false
         val nums = parts.mapNotNull { it.toIntOrNull() }
@@ -531,6 +531,7 @@ class MaWebSocketClient(
             nums[0] == 172 && nums[1] in 16..31 -> true
             nums[0] == 192 && nums[1] == 168 -> true
             nums[0] == 127 -> true
+            nums[0] == 100 && nums[1] in 64..127 -> true // CGNAT / Tailscale
             else -> false
         }
     }
