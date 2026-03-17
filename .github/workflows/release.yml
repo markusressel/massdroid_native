@@ -48,6 +48,6 @@ jobs:
           gh release create ${{ steps.version.outputs.version }} \
             "build-output/massdroid-${{ steps.version.outputs.version }}.apk" \
             --title "${{ steps.version.outputs.version }}" \
-            --generate-notes
+            --notes-file WHATSNEW.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

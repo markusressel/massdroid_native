@@ -4,16 +4,7 @@ Native Android client for [Music Assistant](https://music-assistant.io/), the op
 
 MassDroid is a full-featured Music Assistant companion app built around music exploration and discovery. It gives you complete remote control over all your MA players while also learning from your listening habits to surface personalized recommendations, generating Smart Mix playlists and genre radio stations entirely on-device, enriching your library with metadata from Last.fm, and helping you discover similar artists across all your music providers.
 
-## What's New ![NEW](https://img.shields.io/badge/-NEW-brightgreen)
-
-- **Browse Tab** : Navigate your music providers by folder structure with play buttons and action sheets
-- **Provider Icons and Filtering** : See which provider each item comes from, filter Library and Search results by provider
-- **Search Redesign** : Provider filter chips with result counts, grid/list toggle, fallback icons for missing artwork
-- **Settings Reorganization** : Split into Connection, Recommendations, and About sub-screens
-- **Genre Radio Improvements** : Provider-based recommendations with data-driven genre families for better coherence
-- **Lyrics** : Synced and plain text lyrics in the Now Playing screen
-- **Similar Artists** : Discover related artists from Last.fm, resolved against your music providers with genre validation
-- **Internet Radio** : Browse and search thousands of radio stations directly from the Library
+## [What's New](WHATSNEW.md) ![NEW](https://img.shields.io/badge/-NEW-brightgreen)
 
 ## Screenshots
 

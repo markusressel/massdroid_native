@@ -1,0 +1,10 @@
+- Browse tab in Library with folder navigation, play buttons, and action sheet
+- Provider icons on media items with provider filter in Library and Search
+- Search screen redesign with provider chips, grid/list toggle, and result counts
+- Settings reorganized into sub-screens (Connection, Recommendations, About)
+- Genre radio uses provider-based recommendations with data-driven genre families
+- Empty state for disconnected Home and Library screens
+- Tailscale CGNAT and .ts.net hostname support
+- Fix notification controls not responding
+- Fix battery drain from Sendspin holding wake locks during idle
+- Fix auto-play on app restart

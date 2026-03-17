@@ -21,6 +21,7 @@ local.properties
 # Local docs
 *.md
 !README.md
+!WHATSNEW.md
 /internal_docs/
 
 # Claude Code
