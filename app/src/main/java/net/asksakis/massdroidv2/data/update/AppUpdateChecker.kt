@@ -45,6 +45,11 @@ class AppUpdateChecker @Inject constructor(
         data class Error(val message: String) : CheckResult()
     }
 
+    private val _pendingUpdate = kotlinx.coroutines.flow.MutableStateFlow<UpdateInfo?>(null)
+    val pendingUpdate: kotlinx.coroutines.flow.StateFlow<UpdateInfo?> = _pendingUpdate
+
+    fun dismissPendingUpdate() { _pendingUpdate.value = null }
+
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val httpClient = baseOkHttpClient.newBuilder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -130,15 +135,15 @@ class AppUpdateChecker @Inject constructor(
                     return@withContext CheckResult.Error("No APK asset found in latest release")
                 }
 
-                CheckResult.UpdateAvailable(
-                    UpdateInfo(
-                        version = latestVersion,
-                        downloadUrl = apkAsset.getString("browser_download_url"),
-                        releaseNotes = releaseJson.optString("body").ifBlank { "No release notes." },
-                        publishedAt = releaseJson.optString("published_at"),
-                        fileSizeBytes = apkAsset.optLong("size")
-                    )
+                val info = UpdateInfo(
+                    version = latestVersion,
+                    downloadUrl = apkAsset.getString("browser_download_url"),
+                    releaseNotes = releaseJson.optString("body").ifBlank { "No release notes." },
+                    publishedAt = releaseJson.optString("published_at"),
+                    fileSizeBytes = apkAsset.optLong("size")
                 )
+                _pendingUpdate.value = info
+                CheckResult.UpdateAvailable(info)
             }
         }.getOrElse { error ->
             CheckResult.Error(error.message ?: "Failed to check for updates")

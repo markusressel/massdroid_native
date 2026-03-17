@@ -50,6 +50,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.util.Log
 import dagger.hilt.android.AndroidEntryPoint
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import net.asksakis.massdroidv2.ui.components.LocalProviderManifestCache
 import net.asksakis.massdroidv2.ui.components.MiniPlayer
 import javax.inject.Inject
@@ -76,6 +81,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var shortcutDispatcher: ShortcutActionDispatcher
     @Inject lateinit var providerManifestCache: net.asksakis.massdroidv2.data.provider.ProviderManifestCache
+    @Inject lateinit var appUpdateChecker: net.asksakis.massdroidv2.data.update.AppUpdateChecker
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -93,6 +99,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 MassDroidTheme {
                     MassDroidApp()
+                    UpdatePrompt(appUpdateChecker)
                 }
             }
         }
@@ -149,6 +156,57 @@ class MainActivity : ComponentActivity() {
             }
             .setNegativeButton("Skip", null)
             .show()
+    }
+}
+
+@Composable
+private fun UpdatePrompt(checker: net.asksakis.massdroidv2.data.update.AppUpdateChecker) {
+    val pendingUpdate by checker.pendingUpdate.collectAsStateWithLifecycle()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var isDownloading by remember { mutableStateOf(false) }
+
+    pendingUpdate?.let { info ->
+        val fileSizeMb = info.fileSizeBytes / (1024 * 1024)
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!isDownloading) checker.dismissPendingUpdate() },
+            title = { androidx.compose.material3.Text("Update Available") },
+            text = {
+                androidx.compose.material3.Text(
+                    "Version ${info.version} is available${if (fileSizeMb > 0) " (${fileSizeMb}MB)" else ""}.\n\n${info.releaseNotes.take(300)}"
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        isDownloading = true
+                        scope.launch {
+                            checker.downloadUpdate(info) { }
+                                .onSuccess { file ->
+                                    context.startActivity(checker.buildInstallIntent(file))
+                                }
+                            isDownloading = false
+                            checker.dismissPendingUpdate()
+                        }
+                    },
+                    enabled = !isDownloading
+                ) {
+                    if (isDownloading) {
+                        androidx.compose.material3.Text("Downloading...")
+                    } else {
+                        androidx.compose.material3.Text("Download & Install")
+                    }
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { checker.dismissPendingUpdate() },
+                    enabled = !isDownloading
+                ) {
+                    androidx.compose.material3.Text("Later")
+                }
+            }
+        )
     }
 }
 

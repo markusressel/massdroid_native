@@ -81,7 +81,10 @@ class MassDroidApp : Application(), ImageLoaderFactory {
         appScope.launch {
             try {
                 val includeBeta = settingsRepository.includeBetaUpdates.first()
-                appUpdateChecker.checkForUpdates(force = false, includePrerelease = includeBeta)
+                val result = appUpdateChecker.checkForUpdates(force = false, includePrerelease = includeBeta)
+                if (result is net.asksakis.massdroidv2.data.update.AppUpdateChecker.CheckResult.UpdateAvailable) {
+                    Log.d("MassDroidApp", "Update available: ${result.info.version}")
+                }
             } catch (e: Exception) {
                 Log.d("MassDroidApp", "Background update check skipped: ${e.message}")
             }
