@@ -34,3 +34,11 @@ jobs:
           name: apk-files
           path: build-output/app/outputs/apk/**/*.apk
 
+      - name: Upload dev APK to dev-latest release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        run: |
+          gh release create dev-latest --title "Dev Build (latest)" --notes "Automatically updated debug APK from the latest dev push." --prerelease 2>/dev/null || true
+          gh release upload dev-latest build-output/app/outputs/apk/debug/*.apk --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

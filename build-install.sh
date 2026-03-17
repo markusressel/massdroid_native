@@ -26,8 +26,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-APK="$BUILD_ROOT/app/outputs/apk/debug/app-debug.apk"
-LOCAL_APK="$(pwd)/app/build/outputs/apk/debug/app-debug.apk"
+VERSION=$(grep 'versionName' app/build.gradle.kts | head -1 | sed 's/.*"\(.*\)".*/\1/')
+APK="$BUILD_ROOT/app/outputs/apk/debug/massdroid-${VERSION}-debug.apk"
 
 declare -a ADB_CANDIDATES=()
 
@@ -94,10 +94,6 @@ bash gradlew -PmassdroidBuildRoot="$BUILD_ROOT" detekt
 
 echo "=== Build ==="
 bash gradlew -PmassdroidBuildRoot="$BUILD_ROOT" assembleDebug
-
-if [[ ! -f "$APK" && -f "$LOCAL_APK" ]]; then
-  APK="$LOCAL_APK"
-fi
 
 if [[ ! -f "$APK" ]]; then
   echo "APK not found: $APK"
