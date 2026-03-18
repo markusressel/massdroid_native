@@ -28,8 +28,11 @@ class MaWebSocketClient(
 ) {
     companion object {
         private const val TAG = "MaWsClient"
-        private const val INITIAL_BACKOFF_MS = 2_000L
-        private const val MAX_BACKOFF_MS = 30_000L
+        private const val AGGRESSIVE_RETRY_MS = 1_000L
+        private const val AGGRESSIVE_RETRY_COUNT = 30
+        private const val PATIENT_RETRY_MS = 5_000L
+        private const val PATIENT_RETRY_COUNT = 30
+        private const val MAX_RETRY_COUNT = AGGRESSIVE_RETRY_COUNT + PATIENT_RETRY_COUNT
         private const val STABLE_CONNECTION_RESET_MS = 30_000L
         private const val COMMAND_RETRY_DELAY_MS = 140L
     }
@@ -59,7 +62,6 @@ class MaWebSocketClient(
     private var onTokenReceived: ((String) -> Unit)? = null
     private var userDisconnected = false
     private var reconnectJob: Job? = null
-    private var currentBackoffMs = INITIAL_BACKOFF_MS
     private var reconnectAttempts = 0
     @Volatile
     private var connectionGeneration = 0
@@ -234,16 +236,18 @@ class MaWebSocketClient(
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             val attempt = reconnectAttempts + 1
-            val jitterFactor = ThreadLocalRandom.current().nextDouble(0.85, 1.30)
-            val delayMs = (currentBackoffMs * jitterFactor)
-                .toLong()
-                .coerceIn(INITIAL_BACKOFF_MS, MAX_BACKOFF_MS)
-            Log.d(TAG, "Reconnecting in ${delayMs}ms (attempt=$attempt, base=${currentBackoffMs}ms)")
+            if (attempt > MAX_RETRY_COUNT) {
+                Log.w(TAG, "Max reconnect attempts ($MAX_RETRY_COUNT) reached, giving up")
+                _connectionState.value = ConnectionState.Error("Connection lost. Check server and retry.")
+                return@launch
+            }
+            val baseMs = if (attempt <= AGGRESSIVE_RETRY_COUNT) AGGRESSIVE_RETRY_MS else PATIENT_RETRY_MS
+            val jitterFactor = ThreadLocalRandom.current().nextDouble(0.85, 1.15)
+            val delayMs = (baseMs * jitterFactor).toLong()
+            Log.d(TAG, "Reconnecting in ${delayMs}ms (attempt=$attempt/$MAX_RETRY_COUNT)")
             delay(delayMs)
             if (userDisconnected) return@launch
             reconnectAttempts = attempt
-            currentBackoffMs = (currentBackoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
-            Log.d(TAG, "Attempting reconnect to $url")
             doConnect(url)
         }
     }
@@ -256,7 +260,6 @@ class MaWebSocketClient(
 
     private fun resetReconnectBackoff() {
         reconnectAttempts = 0
-        currentBackoffMs = INITIAL_BACKOFF_MS
     }
 
     private fun handleMessage(text: String) {
