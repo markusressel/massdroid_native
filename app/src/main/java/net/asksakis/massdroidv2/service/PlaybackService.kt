@@ -74,6 +74,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var wsClient: MaWebSocketClient
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var shortcutDispatcher: ShortcutActionDispatcher
+    @Inject lateinit var playHistoryRepository: net.asksakis.massdroidv2.domain.repository.PlayHistoryRepository
 
     private var mediaLibrarySession: MediaLibrarySession? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -681,6 +682,7 @@ class PlaybackService : MediaLibraryService() {
                         "albums" -> loadAlbums(page, effectivePageSize)
                         "playlists" -> loadPlaylists(page, effectivePageSize)
                         "tracks" -> loadTracks(page, effectivePageSize)
+                        "genre_radio" -> buildGenreRadioList()
                         else -> loadSubItems(parentId, page, effectivePageSize)
                     }
                 } catch (e: Exception) {
@@ -750,19 +752,33 @@ class PlaybackService : MediaLibraryService() {
             }
             scope.launch(Dispatchers.IO) {
                 for (item in mediaItems) {
-                    val uri = item.requestMetadata.mediaUri?.toString()
-                        ?: item.mediaId.takeIf { it.contains("/") }
-                    val resolvedUri = uri ?: resolveMediaIdToUri(item.mediaId)
-                    if (resolvedUri != null) {
-                        try {
-                            Log.d(TAG, "onAddMediaItems: playing $resolvedUri (mediaId=${item.mediaId})")
-                            playerRepository.setQueueFilterMode(queueId, PlayerRepository.QueueFilterMode.NORMAL)
-                            musicRepository.playMedia(queueId, resolvedUri, option = "replace")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "playMedia failed for $resolvedUri", e)
+                    val mediaId = item.mediaId
+                    when {
+                        mediaId == "smart_mix" -> {
+                            Log.d(TAG, "onAddMediaItems: dispatching Smart Mix")
+                            shortcutDispatcher.dispatch(ShortcutAction.SmartMix)
                         }
-                    } else {
-                        Log.w(TAG, "onAddMediaItems: could not resolve mediaId=${item.mediaId}")
+                        mediaId.startsWith("genre_radio|") -> {
+                            val genre = mediaId.removePrefix("genre_radio|")
+                            Log.d(TAG, "onAddMediaItems: dispatching Genre Radio '$genre'")
+                            shortcutDispatcher.dispatch(ShortcutAction.GenreRadio(genre))
+                        }
+                        else -> {
+                            val uri = item.requestMetadata.mediaUri?.toString()
+                                ?: item.mediaId.takeIf { it.contains("/") }
+                            val resolvedUri = uri ?: resolveMediaIdToUri(mediaId)
+                            if (resolvedUri != null) {
+                                try {
+                                    Log.d(TAG, "onAddMediaItems: playing $resolvedUri (mediaId=$mediaId)")
+                                    playerRepository.setQueueFilterMode(queueId, PlayerRepository.QueueFilterMode.NORMAL)
+                                    musicRepository.playMedia(queueId, resolvedUri, option = "replace")
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "playMedia failed for $resolvedUri", e)
+                                }
+                            } else {
+                                Log.w(TAG, "onAddMediaItems: could not resolve mediaId=$mediaId")
+                            }
+                        }
                     }
                 }
             }
@@ -788,7 +804,31 @@ class PlaybackService : MediaLibraryService() {
         browseFolder("albums", "Albums", MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS),
         browseFolder("playlists", "Playlists", MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS),
         browseFolder("tracks", "Tracks", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
+        playableItem("smart_mix", "Smart Mix", MediaMetadata.MEDIA_TYPE_PLAYLIST),
+        browseFolder("genre_radio", "Genre Radio", MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS),
     )
+
+    private suspend fun buildGenreRadioList(): List<MediaItem> {
+        val genres = playHistoryRepository.getTopGenres(days = 60, limit = 20)
+        return genres.map { genreScore ->
+            val genre = genreScore.genre.replaceFirstChar { it.uppercase() }
+            playableItem("genre_radio|${genreScore.genre}", genre, MediaMetadata.MEDIA_TYPE_PLAYLIST)
+        }
+    }
+
+    private fun playableItem(mediaId: String, title: String, mediaType: Int): MediaItem {
+        return MediaItem.Builder()
+            .setMediaId(mediaId)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setIsBrowsable(false)
+                    .setIsPlayable(true)
+                    .setMediaType(mediaType)
+                    .build()
+            )
+            .build()
+    }
 
     private fun browseFolder(mediaId: String, title: String, mediaType: Int): MediaItem {
         return MediaItem.Builder()

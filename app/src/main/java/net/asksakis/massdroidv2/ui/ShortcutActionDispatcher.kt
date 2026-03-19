@@ -9,6 +9,7 @@ import javax.inject.Singleton
 sealed interface ShortcutAction {
     data object SmartMix : ShortcutAction
     data object PlayNow : ShortcutAction
+    data class GenreRadio(val genre: String) : ShortcutAction
 }
 
 @Singleton

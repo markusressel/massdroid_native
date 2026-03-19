@@ -194,10 +194,18 @@ class DiscoverViewModel @Inject constructor(
         viewModelScope.launch {
             shortcutDispatcher.pendingAction
                 .filterNotNull()
-                .filter { it is ShortcutAction.SmartMix }
-                .collect {
-                    shortcutDispatcher.consume()
-                    makePlaylistForMe()
+                .collect { action ->
+                    when (action) {
+                        is ShortcutAction.SmartMix -> {
+                            shortcutDispatcher.consume()
+                            makePlaylistForMe()
+                        }
+                        is ShortcutAction.GenreRadio -> {
+                            shortcutDispatcher.consume()
+                            startGenreRadio(action.genre)
+                        }
+                        else -> {}
+                    }
                 }
         }
     }
