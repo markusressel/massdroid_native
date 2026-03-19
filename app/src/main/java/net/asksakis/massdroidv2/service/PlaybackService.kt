@@ -585,6 +585,18 @@ class PlaybackService : MediaLibraryService() {
 
     private val libraryCallback = object : MediaLibrarySession.Callback {
 
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): MediaSession.ConnectionResult {
+            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+            val playerCommands = Player.Commands.Builder().addAllCommands().build()
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(sessionCommands)
+                .setAvailablePlayerCommands(playerCommands)
+                .build()
+        }
+
         @OptIn(UnstableApi::class)
         override fun onMediaButtonEvent(
             session: MediaSession,
@@ -1087,7 +1099,8 @@ class RemoteControlPlayer(
                 COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
                 COMMAND_GET_METADATA,
                 COMMAND_GET_CURRENT_MEDIA_ITEM,
-                COMMAND_GET_TIMELINE
+                COMMAND_GET_TIMELINE,
+                COMMAND_SET_MEDIA_ITEM
             )
         if (_isRemotePlayback) {
             commandsBuilder.addAll(
