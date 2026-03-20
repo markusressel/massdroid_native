@@ -94,6 +94,8 @@ fun LibraryScreen(
 
     // Action sheet state
     var actionSheetItem by remember { mutableStateOf<ActionSheetItem?>(null) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var deletePlaylistTarget by remember { mutableStateOf<ActionSheetItem?>(null) }
 
     val initConnectionState by viewModel.connectionState.collectAsStateWithLifecycle()
     LaunchedEffect(selectedTab, settingsLoaded, initConnectionState) {
@@ -449,31 +451,42 @@ fun LibraryScreen(
                         onPlayClick = { viewModel.quickPlay(it.uri) },
                         providerDomains = { it.providerDomains }
                     )
-                    3 -> MediaList(
-                        items = playlists,
-                        displayMode = displayMode,
-                        isLoadingMore = isLoadingMore,
-                        onLoadMore = { viewModel.loadMorePlaylists() },
-                        key = { it.uri },
-                        title = { it.name },
-                        subtitle = { "" },
-                        imageUrl = { it.imageUrl },
-                        favorite = { it.favorite },
-                        onClick = { onPlaylistClick(it) },
-                        onLongClick = { playlist ->
-                            actionSheetItem = ActionSheetItem(
-                                title = playlist.name,
-                                subtitle = "",
-                                uri = playlist.uri,
-                                imageUrl = playlist.imageUrl,
-                                favorite = playlist.favorite,
-                                mediaType = MediaType.PLAYLIST,
-                                itemId = playlist.itemId
-                            )
-                        },
-                        onPlayClick = { viewModel.quickPlay(it.uri) },
-                        providerDomains = { it.providerDomains }
-                    )
+                    3 -> Box(modifier = Modifier.fillMaxSize()) {
+                        MediaList(
+                            items = playlists,
+                            displayMode = displayMode,
+                            isLoadingMore = isLoadingMore,
+                            onLoadMore = { viewModel.loadMorePlaylists() },
+                            key = { it.uri },
+                            title = { it.name },
+                            subtitle = { "" },
+                            imageUrl = { it.imageUrl },
+                            favorite = { it.favorite },
+                            onClick = { onPlaylistClick(it) },
+                            onLongClick = { playlist ->
+                                actionSheetItem = ActionSheetItem(
+                                    title = playlist.name,
+                                    subtitle = "",
+                                    uri = playlist.uri,
+                                    imageUrl = playlist.imageUrl,
+                                    favorite = playlist.favorite,
+                                    mediaType = MediaType.PLAYLIST,
+                                    itemId = playlist.itemId
+                                )
+                            },
+                            onPlayClick = { viewModel.quickPlay(it.uri) },
+                            providerDomains = { it.providerDomains }
+                        )
+                        FloatingActionButton(
+                            onClick = { showCreatePlaylistDialog = true },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(16.dp),
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "New Playlist")
+                        }
+                    }
                     4 -> MediaList(
                         items = radios,
                         displayMode = displayMode,
@@ -630,7 +643,63 @@ fun LibraryScreen(
             onStartRadio = if (isRadio) null else {
                 { viewModel.startRadio(target.uri) }
             },
+            onDelete = if (isPlaylist) {
+                {
+                    deletePlaylistTarget = target
+                    actionSheetItem = null
+                }
+            } else null,
             onDismiss = { actionSheetItem = null }
+        )
+    }
+
+    deletePlaylistTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deletePlaylistTarget = null },
+            title = { Text("Delete Playlist") },
+            text = { Text("Delete \"${target.title}\"?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.removeFromLibrary(MediaType.PLAYLIST, target.itemId, target.uri)
+                    deletePlaylistTarget = null
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletePlaylistTarget = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showCreatePlaylistDialog) {
+        var playlistName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCreatePlaylistDialog = false },
+            title = { Text("New Playlist") },
+            text = {
+                OutlinedTextField(
+                    value = playlistName,
+                    onValueChange = { playlistName = it },
+                    placeholder = { Text("Playlist name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (playlistName.isNotBlank()) {
+                            viewModel.createPlaylist(playlistName.trim())
+                            showCreatePlaylistDialog = false
+                        }
+                    },
+                    enabled = playlistName.isNotBlank()
+                ) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreatePlaylistDialog = false }) { Text("Cancel") }
+            }
         )
     }
 }

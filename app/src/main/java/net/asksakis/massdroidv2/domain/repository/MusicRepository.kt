@@ -36,6 +36,7 @@ interface MusicRepository {
         awaitResponse: Boolean = false,
         timeoutMs: Long? = null
     )
+    suspend fun createPlaylist(name: String): Playlist
     suspend fun addTrackToPlaylist(playlist: Playlist, trackUri: String)
     suspend fun removeTrackFromPlaylist(playlist: Playlist, position: Int)
     suspend fun shuffleQueue(queueId: String, enabled: Boolean)

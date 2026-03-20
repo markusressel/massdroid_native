@@ -642,6 +642,18 @@ class LibraryViewModel @Inject constructor(
         playUri(playlist.uri)
     }
 
+    fun createPlaylist(name: String) {
+        viewModelScope.launch {
+            try {
+                val playlist = musicRepository.createPlaylist(name)
+                _playlists.value = _playlists.value + playlist
+            } catch (e: Exception) {
+                Log.w(TAG, "createPlaylist failed: ${e.message}")
+                _error.tryEmit("Failed to create playlist")
+            }
+        }
+    }
+
     fun quickPlay(uri: String) {
         val queueId = playerRepository.requireSelectedPlayerId() ?: return
         viewModelScope.launch {

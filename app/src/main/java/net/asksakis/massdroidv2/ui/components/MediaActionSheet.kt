@@ -59,6 +59,7 @@ fun MediaActionSheet(
     onPlayOnPlayer: (Player) -> Unit,
     onAddToQueue: () -> Unit,
     onStartRadio: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -270,6 +271,27 @@ fun MediaActionSheet(
                     },
                     modifier = Modifier.clickable {
                         onToggleArtistBlocked()
+                        onDismiss()
+                    }
+                )
+            }
+
+            // Delete
+            if (onDelete != null) {
+                ListItem(
+                    colors = SheetDefaults.listItemColors(),
+                    headlineContent = {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    },
+                    leadingContent = {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        onDelete()
                         onDismiss()
                     }
                 )

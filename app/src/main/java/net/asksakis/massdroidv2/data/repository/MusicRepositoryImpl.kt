@@ -186,6 +186,21 @@ class MusicRepositoryImpl @Inject constructor(
         )
     }
 
+    override suspend fun createPlaylist(name: String): Playlist {
+        val result = wsClient.sendCommand(
+            MaCommands.Music.PLAYLISTS_CREATE,
+            buildJsonObject { put("name", name) }
+        )
+        val json = result?.jsonObject ?: throw Exception("Failed to create playlist")
+        return Playlist(
+            itemId = json["item_id"]?.jsonPrimitive?.content ?: "",
+            provider = json["provider"]?.jsonPrimitive?.content ?: "library",
+            name = json["name"]?.jsonPrimitive?.content ?: name,
+            uri = json["uri"]?.jsonPrimitive?.content ?: "",
+            isEditable = true
+        )
+    }
+
     override suspend fun addTrackToPlaylist(playlist: Playlist, trackUri: String) {
         val dbPlaylistId = resolvePlaylistDbId(playlist)
         wsClient.sendCommand(

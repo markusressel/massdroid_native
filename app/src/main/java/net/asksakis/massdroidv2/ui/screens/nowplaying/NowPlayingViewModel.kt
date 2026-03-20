@@ -50,6 +50,8 @@ class NowPlayingViewModel @Inject constructor(
     val isLoadingPlaylists: StateFlow<Boolean> = _isLoadingPlaylists.asStateFlow()
     private val _addingToPlaylistId = MutableStateFlow<String?>(null)
     val addingToPlaylistId: StateFlow<String?> = _addingToPlaylistId.asStateFlow()
+    private val _playlistContainsTrack = MutableStateFlow<Set<String>>(emptySet())
+    val playlistContainsTrack: StateFlow<Set<String>> = _playlistContainsTrack.asStateFlow()
 
     private val _lyrics = MutableStateFlow<LyricsProvider.LyricsResult?>(null)
     val lyrics: StateFlow<LyricsProvider.LyricsResult?> = _lyrics.asStateFlow()
@@ -235,8 +237,10 @@ class NowPlayingViewModel @Inject constructor(
         viewModelScope.launch {
             _isLoadingPlaylists.value = true
             try {
-                _playlists.value = musicRepository.getPlaylists(limit = 200)
+                val loaded = musicRepository.getPlaylists(limit = 200)
                     .filter { it.isEditable }
+                _playlists.value = loaded
+                checkTrackInPlaylists(loaded)
             } catch (e: Exception) {
                 Log.w(TAG, "loadPlaylists failed: ${e.message}")
                 _error.tryEmit("Failed to load playlists")
@@ -244,6 +248,21 @@ class NowPlayingViewModel @Inject constructor(
                 _isLoadingPlaylists.value = false
             }
         }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun checkTrackInPlaylists(playlists: List<Playlist>) {
+        val trackUri = queueState.value?.currentItem?.track?.uri ?: return
+        val containing = mutableSetOf<String>()
+        for (playlist in playlists) {
+            try {
+                val tracks = musicRepository.getPlaylistTracks(playlist.itemId, playlist.provider)
+                if (tracks.any { it.uri == trackUri }) {
+                    containing += playlist.uri
+                }
+            } catch (_: Exception) { }
+        }
+        _playlistContainsTrack.value = containing
     }
 
     fun loadLyrics() {
@@ -258,6 +277,21 @@ class NowPlayingViewModel @Inject constructor(
                 _lyrics.value = LyricsProvider.LyricsResult(null, null)
             } finally {
                 _isLoadingLyrics.value = false
+            }
+        }
+    }
+
+    fun createPlaylistAndAddTrack(name: String, onDone: () -> Unit = {}) {
+        val track = queueState.value?.currentItem?.track ?: return
+        viewModelScope.launch {
+            try {
+                val playlist = musicRepository.createPlaylist(name)
+                musicRepository.addTrackToPlaylist(playlist, track.uri)
+                _playlists.value = _playlists.value + playlist
+                onDone()
+            } catch (e: Exception) {
+                Log.w(TAG, "createPlaylistAndAddTrack failed: ${e.message}")
+                _error.tryEmit("Failed to create playlist")
             }
         }
     }
