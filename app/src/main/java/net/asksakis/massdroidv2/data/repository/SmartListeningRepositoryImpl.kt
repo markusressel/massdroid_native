@@ -37,6 +37,7 @@ class SmartListeningRepositoryImpl @Inject constructor(
         private const val DECAY_DAYS = 60.0
 
         private const val SKIP_ARTIST_SIGNAL = -0.50
+        private const val SKIP_ARTIST_DAMPENING = 0.25
         private const val LISTEN_ARTIST_SIGNAL = 0.20
         private const val LIKE_ARTIST_SIGNAL = 0.60
         private const val UNLIKE_ARTIST_SIGNAL = -0.70
@@ -50,12 +51,14 @@ class SmartListeningRepositoryImpl @Inject constructor(
 
     override suspend fun recordSkip(track: Track, artists: List<Pair<String, String>>, listenedMs: Long?) {
         if (!settingsRepository.smartListeningEnabled.first()) return
-        val signal = scaleSkipSignal(listenedMs, track.duration)
+        val trackSignal = scaleSkipSignal(listenedMs, track.duration)
+        val artistSignal = trackSignal * SKIP_ARTIST_DAMPENING
         insertArtistSignals(
             track = track,
             artists = artists,
             action = "skip",
-            signalPerArtist = signal,
+            signalPerArtist = artistSignal,
+            trackSignalOverride = trackSignal,
             listenedMs = listenedMs
         )
     }
@@ -169,6 +172,7 @@ class SmartListeningRepositoryImpl @Inject constructor(
         artists: List<Pair<String, String>>,
         action: String,
         signalPerArtist: Double,
+        trackSignalOverride: Double? = null,
         listenedMs: Long? = null
     ) {
         val now = System.currentTimeMillis()
@@ -186,6 +190,7 @@ class SmartListeningRepositoryImpl @Inject constructor(
                 createdAt = now
             )
         }
+        val trackScore = trackSignalOverride ?: signalPerArtist
         appDatabase.withTransaction {
             if (!albumKey.isNullOrBlank()) {
                 dao.insertAlbum(
@@ -210,7 +215,7 @@ class SmartListeningRepositoryImpl @Inject constructor(
                 dao.insertArtist(ArtistEntity(uri = artistUri, name = artistName.ifBlank { "Artist" }))
             }
             dao.insertSmartFeedback(feedback)
-            dao.adjustTrackScore(trackKey, signalPerArtist)
+            dao.adjustTrackScore(trackKey, trackScore)
         }
         val artistNames = normalized.joinToString(", ") { it.second }
         val label = when {
