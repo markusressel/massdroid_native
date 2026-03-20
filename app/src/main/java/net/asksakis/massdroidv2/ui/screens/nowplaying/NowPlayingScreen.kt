@@ -90,7 +90,9 @@ fun NowPlayingScreen(
     )
     val artistBlocked = currentArtistUri?.let { it in blockedArtistUris } ?: false
     val canToggleArtistBlock = currentArtistUri != null
+    val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()
     var showPlayerMenu by remember { mutableStateOf(false) }
+    var showTransferSheet by remember { mutableStateOf(false) }
     var showLyricsSheet by remember { mutableStateOf(false) }
     val lyrics by viewModel.lyrics.collectAsStateWithLifecycle()
     val isLoadingLyrics by viewModel.isLoadingLyrics.collectAsStateWithLifecycle()
@@ -233,19 +235,68 @@ fun NowPlayingScreen(
     }
 
     if (showPlayerMenu) {
+        val otherPlayers = allPlayers.filter { it.available && it.playerId != player?.playerId }
         PlayerOptionsSheet(
             artistBlocked = artistBlocked,
             canToggleArtistBlock = canToggleArtistBlock,
+            hasOtherPlayers = otherPlayers.isNotEmpty(),
             onDismiss = { showPlayerMenu = false },
             onPlayerSettings = {
                 showPlayerMenu = false
                 showPlayerSettingsDialog = true
+            },
+            onTransferQueue = {
+                showPlayerMenu = false
+                showTransferSheet = true
             },
             onClick = {
                 showPlayerMenu = false
                 viewModel.toggleCurrentArtistBlocked()
             }
         )
+    }
+
+    if (showTransferSheet) {
+        val otherPlayers = allPlayers.filter { it.available && it.playerId != player?.playerId }
+            .sortedBy { it.displayName.lowercase() }
+        ModalBottomSheet(
+            onDismissRequest = { showTransferSheet = false },
+            containerColor = SheetDefaults.containerColor()
+        ) {
+            Column(modifier = Modifier.padding(bottom = 24.dp)) {
+                Column {
+                    SheetDefaults.HeaderTitle(
+                        text = "Transfer queue to",
+                        modifier = Modifier.padding(
+                            horizontal = SheetDefaults.HeaderHorizontalPadding,
+                            vertical = SheetDefaults.HeaderVerticalPadding
+                        )
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(top = 6.dp, bottom = 4.dp))
+                }
+                otherPlayers.forEach { target ->
+                    ListItem(
+                        colors = SheetDefaults.listItemColors(),
+                        headlineContent = { Text(target.displayName) },
+                        leadingContent = {
+                            Icon(
+                                imageVector = Icons.Default.Speaker,
+                                contentDescription = null,
+                                tint = if (target.state == PlaybackState.PLAYING) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        },
+                        modifier = Modifier.clickable {
+                            viewModel.transferQueue(target.playerId)
+                            showTransferSheet = false
+                        }
+                    )
+                }
+            }
+        }
     }
 
     player?.let { currentPlayer ->
@@ -759,8 +810,10 @@ private fun buildAudioQualityBadges(audioFormat: AudioFormatInfo?): List<String>
 private fun PlayerOptionsSheet(
     artistBlocked: Boolean,
     canToggleArtistBlock: Boolean,
+    hasOtherPlayers: Boolean,
     onDismiss: () -> Unit,
     onPlayerSettings: () -> Unit,
+    onTransferQueue: () -> Unit,
     onClick: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -798,6 +851,26 @@ private fun PlayerOptionsSheet(
                 },
                 modifier = Modifier.clickable(onClick = onPlayerSettings)
             )
+            if (hasOtherPlayers) {
+                ListItem(
+                    colors = SheetDefaults.listItemColors(),
+                    headlineContent = { Text("Transfer Queue") },
+                    supportingContent = {
+                        Text(
+                            "Move playback to another player",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Default.SwapHoriz,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    modifier = Modifier.clickable(onClick = onTransferQueue)
+                )
+            }
             ListItem(
                 colors = SheetDefaults.listItemColors(),
                 headlineContent = {

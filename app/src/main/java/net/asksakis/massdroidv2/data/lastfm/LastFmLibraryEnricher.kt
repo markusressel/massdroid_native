@@ -27,7 +27,8 @@ import javax.inject.Singleton
 class LastFmLibraryEnricher @Inject constructor(
     private val lastFmGenreResolver: LastFmGenreResolver,
     private val dao: PlayHistoryDao,
-    private val settingsRepository: net.asksakis.massdroidv2.domain.repository.SettingsRepository
+    private val settingsRepository: net.asksakis.massdroidv2.domain.repository.SettingsRepository,
+    private val musicRepository: net.asksakis.massdroidv2.domain.repository.MusicRepository
 ) {
     data class EnrichmentProgress(
         val total: Int = 0,
@@ -115,6 +116,7 @@ class LastFmLibraryEnricher @Inject constructor(
                     Log.d(TAG, "No Last.fm API key, skipping periodic enrichment")
                     return@launch
                 }
+                syncLibraryArtists()
                 val allArtists = dao.getAllArtistNames()
                 val unenriched = allArtists.filter { it.isNotBlank() && it !in enrichedNames }
                 var enriched = 0
@@ -124,6 +126,21 @@ class LastFmLibraryEnricher @Inject constructor(
                     val cached = dao.getLastFmTags(name)
                     if (cached != null) {
                         enrichedNames += name
+                        if (cached.tags.isNotBlank()) {
+                            val uris = dao.getArtistUrisByName(name)
+                            val existingGenres = uris.flatMap { dao.getGenresForArtist(it) }.toSet()
+                            if (existingGenres.isEmpty()) {
+                                val normalizedGenres = cached.tags.split(",")
+                                    .mapNotNull { normalizeGenre(it).ifBlank { null } }
+                                for (genre in normalizedGenres) {
+                                    dao.insertGenre(GenreEntity(name = genre))
+                                    for (uri in uris) {
+                                        dao.insertArtistGenre(ArtistGenreEntity(artistUri = uri, genreName = genre))
+                                    }
+                                }
+                                if (normalizedGenres.isNotEmpty()) enriched++
+                            }
+                        }
                         processed++
                         _progress.value = _progress.value.copy(processed = processed)
                         continue
@@ -158,8 +175,33 @@ class LastFmLibraryEnricher @Inject constructor(
         }
     }
 
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun syncLibraryArtists() {
+        try {
+            val existing = dao.getAllArtistNames().toSet()
+            var offset = 0
+            var inserted = 0
+            while (true) {
+                val batch = musicRepository.getArtists(limit = PAGE_SIZE, offset = offset, orderBy = "name")
+                if (batch.isEmpty()) break
+                for (artist in batch) {
+                    if (artist.name.isNotBlank() && artist.name !in existing) {
+                        dao.insertArtist(ArtistEntity(uri = artist.uri, name = artist.name))
+                        inserted++
+                    }
+                }
+                offset += batch.size
+                if (batch.size < PAGE_SIZE) break
+            }
+            if (inserted > 0) Log.d(TAG, "Synced $inserted new library artists")
+        } catch (e: Exception) {
+            Log.w(TAG, "Library artist sync failed: ${e.message}")
+        }
+    }
+
     companion object {
         private const val TAG = "LastFmEnricher"
+        private const val PAGE_SIZE = 500
         private const val RATE_LIMIT_MS = 200L
         private const val BULK_RATE_LIMIT_MS = 500L
     }

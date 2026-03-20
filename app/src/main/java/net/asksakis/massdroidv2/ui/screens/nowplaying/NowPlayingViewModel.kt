@@ -39,6 +39,7 @@ class NowPlayingViewModel @Inject constructor(
 ) : ViewModel() {
 
     val selectedPlayer = playerRepository.selectedPlayer
+    val allPlayers: StateFlow<List<net.asksakis.massdroidv2.domain.model.Player>> = playerRepository.players
     val queueState = playerRepository.queueState
     val elapsedTime = playerRepository.elapsedTime
     private val _blockedArtistUris = MutableStateFlow<Set<String>>(emptySet())
@@ -305,6 +306,18 @@ class NowPlayingViewModel @Inject constructor(
             .orEmpty()
             .ifBlank { "Artist" }
         return listOf(uri to name)
+    }
+
+    fun transferQueue(targetPlayerId: String) {
+        val sourceQueueId = queueState.value?.queueId ?: return
+        viewModelScope.launch {
+            try {
+                musicRepository.transferQueue(sourceQueueId, targetPlayerId)
+            } catch (e: Exception) {
+                Log.w(TAG, "transferQueue failed: ${e.message}")
+                _error.tryEmit("Failed to transfer queue")
+            }
+        }
     }
 
     fun cycleRepeat() {
