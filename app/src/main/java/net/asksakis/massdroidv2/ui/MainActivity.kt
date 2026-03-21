@@ -222,7 +222,6 @@ private fun MassDroidApp(
     val showMiniPlayer = currentRoute != Routes.NOW_PLAYING &&
         currentRoute != Routes.SETTINGS &&
         currentRoute != Routes.RECOMMENDATION_INSIGHTS &&
-        currentRoute != Routes.PROXIMITY_SETTINGS &&
         currentRoute?.startsWith("room_setup") != true
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE

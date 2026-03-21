@@ -74,7 +74,7 @@ private enum class SettingsCategory { CONNECTION, RECOMMENDATIONS, PROXIMITY, AB
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenRecommendationInsights: () -> Unit,
-    onOpenProximity: () -> Unit = {},
+    onSetupRoom: (roomId: String?) -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val updateUiState by viewModel.updateUiState.collectAsStateWithLifecycle()
@@ -126,27 +126,35 @@ fun SettingsScreen(
             )
         }
     ) { paddingValues ->
-        when (selectedCategory) {
-            null -> CategoryList(
-                viewModel = viewModel,
-                modifier = Modifier.padding(paddingValues),
-                onSelect = { selectedCategory = it },
-                onOpenProximity = onOpenProximity
-            )
-            SettingsCategory.CONNECTION -> ConnectionScreen(
-                viewModel = viewModel,
-                modifier = Modifier.padding(paddingValues)
-            )
-            SettingsCategory.PROXIMITY -> { /* handled via direct navigation */ }
-            SettingsCategory.RECOMMENDATIONS -> RecommendationsScreen(
-                viewModel = viewModel,
-                modifier = Modifier.padding(paddingValues),
-                onOpenInsights = onOpenRecommendationInsights
-            )
-            SettingsCategory.ABOUT -> AboutScreen(
-                viewModel = viewModel,
-                modifier = Modifier.padding(paddingValues)
-            )
+        androidx.compose.animation.AnimatedContent(
+            targetState = selectedCategory,
+            label = "settings_nav"
+        ) { category ->
+            when (category) {
+                null -> CategoryList(
+                    viewModel = viewModel,
+                    modifier = Modifier.padding(paddingValues),
+                    onSelect = { selectedCategory = it }
+                )
+                SettingsCategory.CONNECTION -> ConnectionScreen(
+                    viewModel = viewModel,
+                    modifier = Modifier.padding(paddingValues)
+                )
+                SettingsCategory.PROXIMITY -> ProximitySettingsScreen(
+                    onBack = { selectedCategory = null },
+                    onSetupRoom = onSetupRoom,
+                    modifier = Modifier.padding(paddingValues)
+                )
+                SettingsCategory.RECOMMENDATIONS -> RecommendationsScreen(
+                    viewModel = viewModel,
+                    modifier = Modifier.padding(paddingValues),
+                    onOpenInsights = onOpenRecommendationInsights
+                )
+                SettingsCategory.ABOUT -> AboutScreen(
+                    viewModel = viewModel,
+                    modifier = Modifier.padding(paddingValues)
+                )
+            }
         }
     }
 }
@@ -157,8 +165,7 @@ fun SettingsScreen(
 private fun CategoryList(
     viewModel: SettingsViewModel,
     modifier: Modifier = Modifier,
-    onSelect: (SettingsCategory) -> Unit,
-    onOpenProximity: () -> Unit = {}
+    onSelect: (SettingsCategory) -> Unit
 ) {
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
 
@@ -190,7 +197,7 @@ private fun CategoryList(
                 leadingContent = {
                     Icon(Icons.Default.LocationOn, contentDescription = null)
                 },
-                modifier = Modifier.clickable { onOpenProximity() }
+                modifier = Modifier.clickable { onSelect(SettingsCategory.PROXIMITY) }
             )
         }
         HorizontalDivider()
@@ -283,11 +290,13 @@ private fun AboutScreen(viewModel: SettingsViewModel, modifier: Modifier = Modif
 @Composable
 private fun ConnectionStatusCard(connectionState: ConnectionState) {
     Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = when (connectionState) {
                 is ConnectionState.Connected -> MaterialTheme.colorScheme.primaryContainer
                 is ConnectionState.Error -> MaterialTheme.colorScheme.errorContainer
-                else -> MaterialTheme.colorScheme.surfaceVariant
+                else -> MaterialTheme.colorScheme.surfaceContainerHigh
             }
         )
     ) {
@@ -346,6 +355,16 @@ private fun ServerConnectionCard(
         isRetryingConnection -> "Abort"
         else -> "Connect"
     }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+    ) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
 
     OutlinedTextField(
         value = editUrl,
@@ -452,6 +471,8 @@ private fun ServerConnectionCard(
             }
         }
     }
+    }
+    }
 }
 
 @Composable
@@ -460,9 +481,9 @@ private fun ClientCertCard(viewModel: SettingsViewModel) {
     val context = LocalContext.current
 
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         Column(
             modifier = Modifier
@@ -521,30 +542,17 @@ private fun SmartListeningCard(viewModel: SettingsViewModel) {
     val smartListeningEnabled by viewModel.smartListeningEnabled.collectAsStateWithLifecycle()
 
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Smart Listening", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "Learns from skip/like/listen actions and improves recommendations.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+        ListItem(
+            headlineContent = { Text("Smart Listening") },
+            supportingContent = { Text("Learns from skip/like/listen actions and improves recommendations.") },
+            trailingContent = {
+                Switch(checked = smartListeningEnabled, onCheckedChange = { viewModel.toggleSmartListening(it) })
             }
-            Switch(
-                checked = smartListeningEnabled,
-                onCheckedChange = { viewModel.toggleSmartListening(it) }
-            )
-        }
+        )
     }
 }
 
@@ -553,33 +561,28 @@ private fun InsightsCard(viewModel: SettingsViewModel, onOpen: () -> Unit) {
     val smartListeningEnabled by viewModel.smartListeningEnabled.collectAsStateWithLifecycle()
 
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("Recommendation Insights", style = MaterialTheme.typography.titleSmall)
-            Text(
-                "Open detailed score stats, blocked artists, and recommendation DB actions.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Button(onClick = onOpen, enabled = smartListeningEnabled) {
-                Text("Open Insights")
+        ListItem(
+            headlineContent = { Text("Recommendation Insights") },
+            supportingContent = {
+                Column {
+                    Text("Score stats, blocked artists, and recommendation DB actions.")
+                    if (!smartListeningEnabled) {
+                        Text("Enable Smart Listening first.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            trailingContent = {
+                Button(onClick = onOpen, enabled = smartListeningEnabled) {
+                    Text("Open")
+                }
             }
-            if (!smartListeningEnabled) {
-                Text(
-                    "Enable Smart Listening first.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+        )
     }
 }
 
@@ -589,9 +592,9 @@ private fun LastFmCard(viewModel: SettingsViewModel) {
     val lastFmValidation by viewModel.lastFmValidation.collectAsStateWithLifecycle()
 
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         Column(
             modifier = Modifier
@@ -703,50 +706,34 @@ private fun SendspinCard(viewModel: SettingsViewModel) {
     val sendspinState by viewModel.sendspinState.collectAsStateWithLifecycle()
 
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Sendspin (Phone as Speaker)",
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                    Text(
-                        when (sendspinState) {
-                            SendspinState.STREAMING -> "Streaming"
-                            SendspinState.SYNCING -> "Ready"
-                            SendspinState.HANDSHAKING -> "Handshaking..."
-                            SendspinState.AUTHENTICATING -> "Authenticating..."
-                            SendspinState.CONNECTING -> "Connecting..."
-                            SendspinState.ERROR -> "Error"
-                            SendspinState.DISCONNECTED ->
-                                if (sendspinEnabled) "Stopped" else "Disabled"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = when (sendspinState) {
-                            SendspinState.STREAMING -> MaterialTheme.colorScheme.primary
-                            SendspinState.ERROR -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                }
-                Switch(
-                    checked = sendspinEnabled,
-                    onCheckedChange = { viewModel.toggleSendspin(it) }
+        ListItem(
+            headlineContent = { Text("Sendspin (Phone as Speaker)") },
+            supportingContent = {
+                Text(
+                    when (sendspinState) {
+                        SendspinState.STREAMING -> "Streaming"
+                        SendspinState.SYNCING -> "Ready"
+                        SendspinState.HANDSHAKING -> "Handshaking..."
+                        SendspinState.AUTHENTICATING -> "Authenticating..."
+                        SendspinState.CONNECTING -> "Connecting..."
+                        SendspinState.ERROR -> "Error"
+                        SendspinState.DISCONNECTED -> if (sendspinEnabled) "Stopped" else "Disabled"
+                    },
+                    color = when (sendspinState) {
+                        SendspinState.STREAMING -> MaterialTheme.colorScheme.primary
+                        SendspinState.ERROR -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                 )
+            },
+            trailingContent = {
+                Switch(checked = sendspinEnabled, onCheckedChange = { viewModel.toggleSendspin(it) })
             }
-        }
+        )
     }
 }
 
@@ -757,9 +744,9 @@ private fun UpdatesCard(
     onToggleIncludeBeta: (Boolean) -> Unit
 ) {
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         Column(
             modifier = Modifier
@@ -800,15 +787,8 @@ private fun UpdatesCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "Include beta updates",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                Switch(
-                    checked = state.includeBetaUpdates,
-                    onCheckedChange = onToggleIncludeBeta
-                )
+                Text("Include beta updates", style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = state.includeBetaUpdates, onCheckedChange = onToggleIncludeBeta)
             }
             state.downloadProgress?.let { progress ->
                 if (state.isDownloading) {

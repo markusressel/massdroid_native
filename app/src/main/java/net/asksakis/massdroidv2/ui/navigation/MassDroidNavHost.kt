@@ -30,7 +30,6 @@ object Routes {
     const val QUEUE = "queue"
     const val SETTINGS = "settings"
     const val RECOMMENDATION_INSIGHTS = "recommendation_insights"
-    const val PROXIMITY_SETTINGS = "proximity_settings"
     const val ROOM_SETUP = "room_setup?roomId={roomId}"
 
     fun roomSetup(roomId: String? = null) =
@@ -134,19 +133,12 @@ fun MassDroidNavHost(
             SettingsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenRecommendationInsights = { navController.navigate(Routes.RECOMMENDATION_INSIGHTS) },
-                onOpenProximity = { navController.navigate(Routes.PROXIMITY_SETTINGS) }
+                onSetupRoom = { roomId -> navController.navigate(Routes.roomSetup(roomId)) }
             )
         }
 
         composable(Routes.RECOMMENDATION_INSIGHTS) {
             RecommendationInsightsScreen(onBack = { navController.popBackStack() })
-        }
-
-        composable(Routes.PROXIMITY_SETTINGS) {
-            ProximitySettingsScreen(
-                onBack = { navController.popBackStack() },
-                onSetupRoom = { roomId -> navController.navigate(Routes.roomSetup(roomId)) }
-            )
         }
 
         composable(

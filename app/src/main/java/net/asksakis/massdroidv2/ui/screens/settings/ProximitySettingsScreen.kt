@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -58,6 +59,7 @@ import net.asksakis.massdroidv2.data.proximity.RoomConfig
 fun ProximitySettingsScreen(
     onBack: () -> Unit,
     onSetupRoom: (roomId: String?) -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: ProximityViewModel = hiltViewModel()
 ) {
     val config by viewModel.config.collectAsStateWithLifecycle()
@@ -81,33 +83,10 @@ fun ProximitySettingsScreen(
         return
     }
 
-    Scaffold(
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            TopAppBar(
-                title = { Text("Proximity Playback") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        },
-        floatingActionButton = {
-            if (config.enabled) {
-                FloatingActionButton(
-                    onClick = { onSetupRoom(null) },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Room")
-                }
-            }
-        }
-    ) { paddingValues ->
+    Box(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
         ) {
             ListItem(
@@ -122,6 +101,9 @@ fun ProximitySettingsScreen(
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                                     perms += android.Manifest.permission.BLUETOOTH_SCAN
                                     perms += android.Manifest.permission.BLUETOOTH_CONNECT
+                                }
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                    perms += android.Manifest.permission.ACTIVITY_RECOGNITION
                                 }
                                 val allGranted = perms.all {
                                     context.checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -205,6 +187,17 @@ fun ProximitySettingsScreen(
                     }
                 }
                 Spacer(modifier = Modifier.height(80.dp))
+            }
+        }
+        if (config.enabled) {
+            FloatingActionButton(
+                onClick = { onSetupRoom(null) },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add Room")
             }
         }
     }
@@ -415,24 +408,10 @@ private fun RoomCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun UnavailableScreen(onBack: () -> Unit) {
-    Scaffold(
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            TopAppBar(
-                title = { Text("Proximity Playback") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(32.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -448,6 +427,5 @@ private fun UnavailableScreen(onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
     }
 }
