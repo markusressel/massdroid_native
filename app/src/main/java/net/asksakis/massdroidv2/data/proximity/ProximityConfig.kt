@@ -39,7 +39,9 @@ data class RoomConfig(
 data class RoomPlaybackConfig(
     val playlistUri: String? = null,
     val playlistName: String? = null,
-    val shuffle: Boolean = true
+    val shuffle: Boolean = true,
+    val volumeEnabled: Boolean = false,
+    val volumeLevel: Int = 5
 )
 
 @Serializable

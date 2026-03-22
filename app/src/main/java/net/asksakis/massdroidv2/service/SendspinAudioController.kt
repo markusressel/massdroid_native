@@ -133,7 +133,6 @@ class SendspinAudioController(
         }
 
         setupAudioFocus()
-        requestAudioFocus()
         registerNoisyReceiver()
 
         // Immediately start sendspin connection

@@ -146,6 +146,7 @@ class PlaybackService : MediaLibraryService() {
                         val queueItems = try { musicRepository.getQueueItems(room.playerId, limit = 1) } catch (_: Exception) { emptyList() }
                         if (queueItems.isNotEmpty()) {
                             playerRepository.play(room.playerId)
+                            applyRoomVolume(room)
                             Log.d(TAG, "Proximity play on: ${room.playerName}")
                         } else {
                             performRoomPlayback(room, roomConfig)
@@ -526,6 +527,7 @@ class PlaybackService : MediaLibraryService() {
             try {
                 musicRepository.transferQueue(sourcePlayerId, room.playerId)
                 playerRepository.selectPlayer(room.playerId)
+                applyRoomVolume(room)
                 Log.d(TAG, "Proximity transfer: $sourcePlayerId -> ${room.playerId}")
             } catch (e: Exception) {
                 Log.w(TAG, "Proximity transfer failed: ${e.message}")
@@ -541,11 +543,21 @@ class PlaybackService : MediaLibraryService() {
             if (playback.shuffle) {
                 try { musicRepository.shuffleQueue(room.playerId, true) } catch (_: Exception) { }
             }
+            applyRoomVolume(room)
             Log.d(TAG, "Proximity: playing '${playback.playlistName}' on ${room.playerName} (shuffle=${playback.shuffle})")
         } else {
             Log.d(TAG, "Proximity play: no queue or playlist on ${room.playerName}")
             android.widget.Toast.makeText(this, "No queue on ${room.playerName}", android.widget.Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun applyRoomVolume(room: DetectedRoom) {
+        val roomConfig = proximityConfigStore.config.value.rooms.find { it.id == room.roomId } ?: return
+        val playback = roomConfig.playbackConfig
+        if (!playback.volumeEnabled) return
+        val volume = (playback.volumeLevel * 10).coerceIn(0, 100)
+        sendVolumeCommand(room.playerId, volume)
+        Log.d(TAG, "Proximity volume: ${room.playerName} -> $volume%")
     }
 
     private fun isWithinSchedule(): Boolean {
@@ -1380,7 +1392,7 @@ class RemoteControlPlayer(
     private var _queueEntries: List<QueueEntry> = emptyList()
     private var _volumeLevel = 0
     private var _isMuted = false
-    private var _isRemotePlayback = false
+    private var _isRemotePlayback = true
 
     val currentTitle: String get() = _title
     val currentArtist: String get() = _artist
