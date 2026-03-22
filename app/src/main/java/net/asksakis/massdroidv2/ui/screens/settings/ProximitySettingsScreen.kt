@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,6 +27,7 @@ import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -35,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -133,6 +138,30 @@ fun ProximitySettingsScreen(
                         )
                     }
                 )
+
+                // Schedule
+                ListItem(
+                    headlineContent = { Text("Schedule") },
+                    supportingContent = {
+                        if (config.schedule.enabled) {
+                            val dayNames = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+                            val activeDays = config.schedule.days.sorted().map { dayNames[it - 1] }.joinToString(", ")
+                            Text("$activeDays, ${config.schedule.startHour}:00\u2013${config.schedule.endHour}:00")
+                        } else {
+                            Text("Always active")
+                        }
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = config.schedule.enabled,
+                            onCheckedChange = { viewModel.updateSchedule { s -> s.copy(enabled = it) } }
+                        )
+                    }
+                )
+
+                if (config.schedule.enabled) {
+                    ScheduleConfig(config.schedule, viewModel)
+                }
 
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(8.dp))
@@ -393,6 +422,109 @@ fun ProximitySettingsScreen(
             }
         )
     }
+}
+
+@Composable
+private fun ScheduleConfig(
+    schedule: net.asksakis.massdroidv2.data.proximity.ProximitySchedule,
+    viewModel: ProximityViewModel
+) {
+    val dayLabels = listOf("M" to 1, "T" to 2, "W" to 3, "T" to 4, "F" to 5, "S" to 6, "S" to 7)
+
+    // Day chips
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        dayLabels.forEach { (label, day) ->
+            val active = day in schedule.days
+            androidx.compose.material3.FilterChip(
+                selected = active,
+                onClick = {
+                    val newDays = if (active) schedule.days - day else schedule.days + day
+                    if (newDays.isNotEmpty()) viewModel.updateSchedule { it.copy(days = newDays) }
+                },
+                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                modifier = Modifier.height(32.dp)
+            )
+        }
+    }
+
+    // Time range as clickable chips
+    var showStartPicker by remember { mutableStateOf(false) }
+    var showEndPicker by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        androidx.compose.material3.AssistChip(
+            onClick = { showStartPicker = true },
+            label = { Text("${schedule.startHour}:00", style = MaterialTheme.typography.titleSmall) },
+            leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp)) }
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text("\u2014", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.width(12.dp))
+        androidx.compose.material3.AssistChip(
+            onClick = { showEndPicker = true },
+            label = { Text("${schedule.endHour}:00", style = MaterialTheme.typography.titleSmall) },
+            leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp)) }
+        )
+    }
+
+    if (showStartPicker) {
+        TimePickerDialog(
+            currentHour = schedule.startHour,
+            onSelect = { viewModel.updateSchedule { s -> s.copy(startHour = it) }; showStartPicker = false },
+            onDismiss = { showStartPicker = false }
+        )
+    }
+    if (showEndPicker) {
+        TimePickerDialog(
+            currentHour = schedule.endHour,
+            onSelect = { viewModel.updateSchedule { s -> s.copy(endHour = it) }; showEndPicker = false },
+            onDismiss = { showEndPicker = false }
+        )
+    }
+}
+
+@Composable
+private fun TimePickerDialog(currentHour: Int, onSelect: (Int) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Select Time") },
+        text = {
+            val hours = (0..23).toList()
+            LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                items(hours) { h ->
+                    val selected = h == currentHour
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(h) }
+                            .padding(horizontal = 8.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        RadioButton(selected = selected, onClick = null)
+                        Text(
+                            "${h}:00",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

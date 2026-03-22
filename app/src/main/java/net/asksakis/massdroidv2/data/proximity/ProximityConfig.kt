@@ -5,11 +5,22 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class CalibrationQuality { UNCALIBRATED, WEAK, GOOD }
 
+
+
 @Serializable
 data class ProximityConfig(
     val enabled: Boolean = false,
     val autoTransfer: Boolean = false,
+    val schedule: ProximitySchedule = ProximitySchedule(),
     val rooms: List<RoomConfig> = emptyList()
+)
+
+@Serializable
+data class ProximitySchedule(
+    val enabled: Boolean = false,
+    val days: Set<Int> = setOf(1, 2, 3, 4, 5, 6, 7),
+    val startHour: Int = 7,
+    val endHour: Int = 23
 )
 
 @Serializable
@@ -20,7 +31,15 @@ data class RoomConfig(
     val playerName: String,
     val fingerprints: List<RoomFingerprint> = emptyList(),
     val beaconProfiles: List<BeaconProfile> = emptyList(),
-    val calibrationQuality: CalibrationQuality = CalibrationQuality.UNCALIBRATED
+    val calibrationQuality: CalibrationQuality = CalibrationQuality.UNCALIBRATED,
+    val playbackConfig: RoomPlaybackConfig = RoomPlaybackConfig()
+)
+
+@Serializable
+data class RoomPlaybackConfig(
+    val playlistUri: String? = null,
+    val playlistName: String? = null,
+    val shuffle: Boolean = true
 )
 
 @Serializable

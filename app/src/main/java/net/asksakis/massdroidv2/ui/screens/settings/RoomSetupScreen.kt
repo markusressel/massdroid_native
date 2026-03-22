@@ -1,11 +1,16 @@
 package net.asksakis.massdroidv2.ui.screens.settings
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -15,8 +20,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,7 +38,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -142,6 +155,15 @@ fun RoomSetupScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
 
+            if (existingRoom != null) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                PlaybackConfigSection(
+                    roomId = existingRoom.id,
+                    playbackConfig = existingRoom.playbackConfig,
+                    viewModel = viewModel
+                )
+            }
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
             if (existingRoom != null) {
@@ -203,7 +225,182 @@ fun RoomSetupScreen(
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
             }
+
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlaybackConfigSection(
+    roomId: String,
+    playbackConfig: net.asksakis.massdroidv2.data.proximity.RoomPlaybackConfig,
+    viewModel: ProximityViewModel
+) {
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    var showPlaylistPicker by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { viewModel.loadPlaylists() }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = if (playbackConfig.playlistUri != null) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    "Auto-Play",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Play automatically when entering this room",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Playlist selector
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showPlaylistPicker = true }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Playlist", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        playbackConfig.playlistName ?: "None (resume queue)",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (playbackConfig.playlistUri != null) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (playbackConfig.playlistUri != null) {
+                    IconButton(onClick = {
+                        viewModel.updateRoomPlayback(roomId, playbackConfig.copy(playlistUri = null, playlistName = null))
+                    }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            val hasPlaylist = playbackConfig.playlistUri != null
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Shuffle",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (hasPlaylist) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Switch(
+                    checked = hasPlaylist && playbackConfig.shuffle,
+                    onCheckedChange = { viewModel.updateRoomPlayback(roomId, playbackConfig.copy(shuffle = it)) },
+                    enabled = hasPlaylist
+                )
+            }
+        }
+    }
+
+    // Playlist picker dialog
+    if (showPlaylistPicker) {
+        AlertDialog(
+            onDismissRequest = { showPlaylistPicker = false },
+            title = {
+                Text("Select Playlist", style = MaterialTheme.typography.titleMedium)
+            },
+            text = {
+                if (playlists.isEmpty()) {
+                    Text("No playlists found", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                        // "None" option
+                        item {
+                            val noneSelected = playbackConfig.playlistUri == null
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.updateRoomPlayback(roomId, playbackConfig.copy(playlistUri = null, playlistName = null))
+                                        showPlaylistPicker = false
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                RadioButton(selected = noneSelected, onClick = null)
+                                Text(
+                                    "None (resume queue)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                                )
+                            }
+                        }
+                        items(playlists.sortedBy { it.name.lowercase() }, key = { it.uri }) { playlist ->
+                            val isSelected = playbackConfig.playlistUri == playlist.uri
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.updateRoomPlayback(roomId, playbackConfig.copy(
+                                            playlistUri = playlist.uri,
+                                            playlistName = playlist.name
+                                        ))
+                                        showPlaylistPicker = false
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                RadioButton(selected = isSelected, onClick = null)
+                                Text(
+                                    playlist.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPlaylistPicker = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

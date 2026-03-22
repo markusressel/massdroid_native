@@ -138,6 +138,7 @@ class PlaybackService : MediaLibraryService() {
             }
             PROXIMITY_PLAY_ACTION -> {
                 val room = pendingProximityTransfer ?: return super.onStartCommand(intent, flags, startId)
+                val roomConfig = proximityConfigStore.config.value.rooms.find { it.id == room.roomId }
                 getSystemService(NotificationManager::class.java)?.cancel(PROXIMITY_NOTIFICATION_ID)
                 scope.launch {
                     try {
@@ -147,8 +148,7 @@ class PlaybackService : MediaLibraryService() {
                             playerRepository.play(room.playerId)
                             Log.d(TAG, "Proximity play on: ${room.playerName}")
                         } else {
-                            Log.d(TAG, "Proximity play: empty queue on ${room.playerName}")
-                            android.widget.Toast.makeText(this@PlaybackService, "No queue on ${room.playerName}", android.widget.Toast.LENGTH_SHORT).show()
+                            performRoomPlayback(room, roomConfig)
                         }
                         pendingProximityTransfer = null
                         pendingTransferSourcePlayerId = null
@@ -464,12 +464,11 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun handleRoomChange(detected: DetectedRoom, config: net.asksakis.massdroidv2.data.proximity.ProximityConfig) {
+        if (!isWithinSchedule()) return
         val previousPlayer = playerRepository.selectedPlayer.value
         val sourcePlayerId = previousPlayer?.playerId
         val wasPlaying = previousPlayer?.state == PlaybackState.PLAYING
-        // Already on this player and playing - nothing to do
         if (sourcePlayerId == detected.playerId && wasPlaying) return
-        // Already notified for this room (no duplicate notifications)
         if (pendingProximityTransfer?.roomId == detected.roomId) return
         lastRoomSwitchMs = System.currentTimeMillis()
         Log.d(TAG, "Room confirmed: ${detected.roomName} -> ${detected.playerName}")
@@ -531,6 +530,37 @@ class PlaybackService : MediaLibraryService() {
             } catch (e: Exception) {
                 Log.w(TAG, "Proximity transfer failed: ${e.message}")
             }
+        }
+    }
+
+    private suspend fun performRoomPlayback(room: DetectedRoom, roomConfig: net.asksakis.massdroidv2.data.proximity.RoomConfig?) {
+        val playback = roomConfig?.playbackConfig
+        val uri = playback?.playlistUri
+        if (uri != null) {
+            musicRepository.playMedia(room.playerId, uri, option = "replace")
+            if (playback.shuffle) {
+                try { musicRepository.shuffleQueue(room.playerId, true) } catch (_: Exception) { }
+            }
+            Log.d(TAG, "Proximity: playing '${playback.playlistName}' on ${room.playerName} (shuffle=${playback.shuffle})")
+        } else {
+            Log.d(TAG, "Proximity play: no queue or playlist on ${room.playerName}")
+            android.widget.Toast.makeText(this, "No queue on ${room.playerName}", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun isWithinSchedule(): Boolean {
+        val schedule = proximityConfigStore.config.value.schedule
+        if (!schedule.enabled) return true
+        val now = java.util.Calendar.getInstance()
+        val dayOfWeek = now.get(java.util.Calendar.DAY_OF_WEEK)
+        // Calendar: Sun=1..Sat=7, our schedule: Mon=1..Sun=7
+        val day = if (dayOfWeek == java.util.Calendar.SUNDAY) 7 else dayOfWeek - 1
+        if (day !in schedule.days) return false
+        val hour = now.get(java.util.Calendar.HOUR_OF_DAY)
+        return if (schedule.startHour <= schedule.endHour) {
+            hour in schedule.startHour until schedule.endHour
+        } else {
+            hour >= schedule.startHour || hour < schedule.endHour
         }
     }
 

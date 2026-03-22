@@ -20,7 +20,11 @@ import net.asksakis.massdroidv2.data.proximity.ProximityScanner.Companion.AUTO_F
 import net.asksakis.massdroidv2.data.proximity.RoomConfig
 import net.asksakis.massdroidv2.data.proximity.RoomDetector
 import net.asksakis.massdroidv2.data.proximity.RoomFingerprint
+import net.asksakis.massdroidv2.data.proximity.ProximitySchedule
+import net.asksakis.massdroidv2.data.proximity.RoomPlaybackConfig
 import net.asksakis.massdroidv2.domain.model.Player
+import net.asksakis.massdroidv2.domain.model.Playlist
+import net.asksakis.massdroidv2.domain.repository.MusicRepository
 import net.asksakis.massdroidv2.domain.repository.PlayerRepository
 import java.util.UUID
 import javax.inject.Inject
@@ -44,6 +48,7 @@ class ProximityViewModel @Inject constructor(
     private val configStore: ProximityConfigStore,
     private val scanner: ProximityScanner,
     private val playerRepository: PlayerRepository,
+    private val musicRepository: MusicRepository,
     private val roomDetector: RoomDetector
 ) : ViewModel() {
 
@@ -54,8 +59,17 @@ class ProximityViewModel @Inject constructor(
     val currentRoom: StateFlow<DetectedRoom?> = roomDetector.currentRoom
     val isAvailable: Boolean = scanner.isAvailable()
 
+    private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
+    val playlists: StateFlow<List<Playlist>> = _playlists.asStateFlow()
+
     init {
         viewModelScope.launch { configStore.load() }
+    }
+
+    fun loadPlaylists() {
+        viewModelScope.launch {
+            try { _playlists.value = musicRepository.getPlaylists() } catch (_: Exception) { }
+        }
     }
 
     fun setEnabled(enabled: Boolean) {
@@ -64,6 +78,20 @@ class ProximityViewModel @Inject constructor(
 
     fun setAutoTransfer(auto: Boolean) {
         viewModelScope.launch { configStore.update { it.copy(autoTransfer = auto) } }
+    }
+
+    fun updateSchedule(transform: (ProximitySchedule) -> ProximitySchedule) {
+        viewModelScope.launch { configStore.update { it.copy(schedule = transform(it.schedule)) } }
+    }
+
+    fun updateRoomPlayback(roomId: String, playback: RoomPlaybackConfig) {
+        viewModelScope.launch {
+            configStore.update { config ->
+                config.copy(rooms = config.rooms.map { r ->
+                    if (r.id == roomId) r.copy(playbackConfig = playback) else r
+                })
+            }
+        }
     }
 
     fun deleteRoom(roomId: String) {
