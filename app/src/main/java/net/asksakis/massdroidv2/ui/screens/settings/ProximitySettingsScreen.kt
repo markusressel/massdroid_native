@@ -131,18 +131,6 @@ fun ProximitySettingsScreen(
                     }
                 )
 
-                ListItem(
-                    headlineContent = { Text("Scan during idle") },
-                    supportingContent = { Text("Keep scanning even when no music is playing") },
-                    trailingContent = {
-                        Switch(
-                            checked = config.scanDuringIdlePlayback,
-                            onCheckedChange = { viewModel.setScanDuringIdle(it) }
-                        )
-                    }
-                )
-
-
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -287,13 +275,17 @@ fun ProximitySettingsScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Scanning ($autoProgress/${ProximityScanner.AUTO_FINGERPRINT_CYCLES})...",
                             style = MaterialTheme.typography.bodySmall)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Walk around the room slowly",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else if (nextRoom != null) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Text("Go to ${nextRoom.name} and tap Scan",
                             style = MaterialTheme.typography.bodyMedium)
                     } else {
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text("All rooms scanned. Tap Apply to optimize beacons.",
+                        Text("All rooms scanned. Tap Apply to build fingerprints.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary)
                     }
@@ -393,7 +385,7 @@ private fun RoomCard(
                 ) {
                     Icon(Icons.Default.BluetoothSearching, contentDescription = null, modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("${room.beacons.size} beacons", style = MaterialTheme.typography.bodySmall,
+                    Text("${room.beaconProfiles.size} beacons", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

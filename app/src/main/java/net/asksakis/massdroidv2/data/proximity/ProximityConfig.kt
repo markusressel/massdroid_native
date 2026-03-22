@@ -7,7 +7,6 @@ data class ProximityConfig(
     val enabled: Boolean = false,
     val autoTransfer: Boolean = false,
     val dwellTimeSec: Int = DEFAULT_DWELL_TIME,
-    val scanDuringIdlePlayback: Boolean = true,
     val rooms: List<RoomConfig> = emptyList()
 ) {
     companion object {
@@ -21,14 +20,27 @@ data class RoomConfig(
     val name: String,
     val playerId: String,
     val playerName: String,
-    val beacons: List<BeaconConfig> = emptyList()
+    val fingerprints: List<RoomFingerprint> = emptyList(),
+    val beaconProfiles: List<BeaconProfile> = emptyList()
 )
 
 @Serializable
-data class BeaconConfig(
+data class RoomFingerprint(
+    val id: String,
+    val label: String,
+    val samples: Map<String, Int>,
+    val capturedAtMs: Long
+)
+
+@Serializable
+data class BeaconProfile(
     val address: String,
     val name: String,
-    val referenceRssi: Int
+    val meanRssi: Int,
+    val variance: Double,
+    val visibilityRate: Double,
+    val discriminationScore: Double,
+    val weight: Double
 )
 
 data class DetectedRoom(

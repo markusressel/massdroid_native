@@ -138,21 +138,20 @@ class PlaybackService : MediaLibraryService() {
             }
             PROXIMITY_PLAY_ACTION -> {
                 val room = pendingProximityTransfer ?: return super.onStartCommand(intent, flags, startId)
-                pendingProximityTransfer = null
-                pendingTransferSourcePlayerId = null
                 getSystemService(NotificationManager::class.java)?.cancel(PROXIMITY_NOTIFICATION_ID)
                 scope.launch {
                     try {
                         playerRepository.selectPlayer(room.playerId)
-                        // Check if player has queue items; if empty, start Smart Mix
                         val queueItems = try { musicRepository.getQueueItems(room.playerId, limit = 1) } catch (_: Exception) { emptyList() }
                         if (queueItems.isNotEmpty()) {
                             playerRepository.play(room.playerId)
                             Log.d(TAG, "Proximity play on: ${room.playerName}")
                         } else {
-                            Log.d(TAG, "Proximity play: empty queue, dispatching Smart Mix on ${room.playerName}")
-                            shortcutDispatcher.dispatch(ShortcutAction.SmartMix)
+                            Log.d(TAG, "Proximity play: empty queue on ${room.playerName}")
+                            android.widget.Toast.makeText(this@PlaybackService, "No queue on ${room.playerName}", android.widget.Toast.LENGTH_SHORT).show()
                         }
+                        pendingProximityTransfer = null
+                        pendingTransferSourcePlayerId = null
                     } catch (e: Exception) {
                         Log.w(TAG, "Proximity play failed: ${e.message}")
                     }
@@ -383,7 +382,7 @@ class PlaybackService : MediaLibraryService() {
 
         // PendingIntent background scan as fallback for screen-off
         val beaconAddresses = proximityConfigStore.config.value.rooms
-            .flatMap { r -> r.beacons.map { it.address } }.toSet()
+            .flatMap { r -> r.beaconProfiles.map { it.address } }.toSet()
         if (beaconAddresses.isNotEmpty()) {
             proximityScanner.startBackgroundScan(beaconAddresses)
         }

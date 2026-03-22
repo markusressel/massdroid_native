@@ -337,6 +337,6 @@ class ProximityScanner @Inject constructor(
             0x0080, 0x0140, 0x0141, 0x0180, 0x0181, 0x0280,
             0x0840, 0x0841, 0x0842, 0x0843, 0x0844
         )
-        const val AUTO_FINGERPRINT_CYCLES = 3
+        const val AUTO_FINGERPRINT_CYCLES = 10
     }
 }
