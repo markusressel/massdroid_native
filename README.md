@@ -10,14 +10,19 @@ MassDroid is a full-featured Music Assistant companion app built around music ex
 
 <table align="center">
   <tr>
-    <td align="center"><img src="screenshots/home.png" width="180" /><br/><sub>Discover</sub></td>
-    <td align="center"><img src="screenshots/nowplaying.png" width="180" /><br/><sub>Now Playing</sub></td>
-    <td align="center"><img src="screenshots/library_providers.png" width="180" /><br/><sub>Library</sub></td>
+    <td align="center"><img src="screenshots/home.png" width="240" /><br/><sub>Discover</sub></td>
+    <td align="center"><img src="screenshots/nowplaying.png" width="240" /><br/><sub>Now Playing</sub></td>
+    <td align="center"><img src="screenshots/library_providers.png" width="240" /><br/><sub>Library</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="screenshots/search_providers.png" width="180" /><br/><sub>Search</sub></td>
-    <td align="center"><img src="screenshots/players.png" width="180" /><br/><sub>Players</sub></td>
-    <td align="center"><img src="screenshots/artist_detail.png" width="180" /><br/><sub>Artist Detail</sub></td>
+    <td align="center"><img src="screenshots/search_providers.png" width="240" /><br/><sub>Search</sub></td>
+    <td align="center"><img src="screenshots/players.png" width="240" /><br/><sub>Players</sub></td>
+    <td align="center"><img src="screenshots/artist_detail.png" width="240" /><br/><sub>Artist Detail</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/album_detail.png" width="240" /><br/><sub>Album Detail</sub></td>
+    <td align="center"><img src="screenshots/proximity_settings.png" width="240" /><br/><sub>Proximity Playback</sub></td>
+    <td align="center"><img src="screenshots/room_setup.png" width="240" /><br/><sub>Room Setup</sub></td>
   </tr>
 </table>
 
@@ -29,6 +34,20 @@ MassDroid is a full-featured Music Assistant companion app built around music ex
 - **Genre Radio** : Pick a genre chip on the Discover screen and get a curated playlist. Artist selection is weighted by your play history to keep the mix personal and fresh.
 - **Smart Listening** : Runs silently in the background. Every play, skip, like, and unlike trains a per-artist preference model that decays over 60 days, so the engine adapts as your taste evolves.
 - **Recommendation Insights** : View your top artists, albums, and genres, plus manage blocked artists from Settings.
+
+## Proximity Playback
+
+Walk between rooms and your music follows you. MassDroid uses BLE fingerprinting to detect which room you are in and automatically transfer playback or notify you to switch speakers.
+
+- **BLE Room Detection** : Scans nearby Bluetooth devices (TVs, speakers, routers, IoT) and matches their signal pattern against calibrated room fingerprints using k-NN classification.
+- **Per-Room Configuration** : Assign a Music Assistant player to each room, set a preferred playlist for auto-play, configure volume level, and toggle shuffle.
+- **Calibration Wizard** : Walk through each room while the app collects 10 BLE scans, builds weighted fingerprints, and computes beacon profiles with quality assessment (Good/Weak).
+- **Time Schedule** : Set active days and hours so proximity detection only runs when you want it.
+- **Auto-Transfer** : Optionally transfer the queue automatically without notification when you change rooms.
+- **Screen-Off Detection** : Works with screen off using PendingIntent BLE scans (OS-managed, no wake locks).
+- **Motion Gating** : Sensor hub (significant motion + step detector) triggers scans only when you are actually moving, saving battery.
+
+Requires Android 12+ with Bluetooth support.
 
 ## Recommendation Engine
 
@@ -52,6 +71,7 @@ All recommendation data stays on-device in a local Room database. Nothing is sen
 - **Queue Management** : View, drag-to-reorder, transfer between players, and manage the playback queue with action sheets
 - **Favorites** : Mark artists, albums, tracks, and playlists as favorites, filter library by favorites
 - **Phone as Speaker** : Sendspin protocol turns your phone into a Music Assistant player. Audio streams as Opus frames over WebSocket, decoded and played through your phone speaker or headphones.
+- **Proximity Playback** : BLE fingerprint-based room detection with auto-transfer, per-room playlists, volume, and scheduling
 - **Artist Blocking** : Block any artist from all recommendations, radio stations, and Smart Mix results
 - **Media Session** : Android media notification with playback controls
 - **Player Settings** : Rename players, set icons, configure crossfade and volume normalization
@@ -77,6 +97,7 @@ When Sendspin is enabled, the phone registers as a Music Assistant player. Audio
 
 - Android 8.0+ (API 26)
 - A running [Music Assistant](https://music-assistant.io/) server (v2.x)
+- Android 12+ for Proximity Playback (BLE scanning)
 
 ## Configuration
 
