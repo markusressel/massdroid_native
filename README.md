@@ -110,6 +110,22 @@ When Sendspin is enabled, the phone registers as a Music Assistant player. Audio
 - A running [Music Assistant](https://music-assistant.io/) server (v2.x)
 - Android 12+ for Proximity Playback (BLE scanning)
 
+## Permissions
+
+| Permission | Why |
+|---|---|
+| Internet | Connect to your Music Assistant server |
+| Foreground Service (Media Playback) | Keep media controls and playback active in the background |
+| Foreground Service (Connected Device) | BLE scanning for proximity room detection |
+| Bluetooth Scan / Connect | Discover nearby BLE devices for room fingerprinting |
+| Fine Location | Required by Android for BLE scanning |
+| Activity Recognition | Step detector for motion-gated proximity scanning |
+| Post Notifications | Show playback controls, proximity room alerts, and update prompts |
+| Wake Lock | Keep Sendspin audio streaming while screen is off |
+| Battery Optimization Exemption | Reliable background playback and proximity detection |
+
+All permissions are requested at runtime when needed. Proximity-related permissions (Bluetooth, Location, Activity Recognition) are only requested when you enable Proximity Playback.
+
 ## Configuration
 
 ### Server connection
