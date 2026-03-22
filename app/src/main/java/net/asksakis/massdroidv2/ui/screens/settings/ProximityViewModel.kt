@@ -229,74 +229,72 @@ class ProximityViewModel @Inject constructor(
             val allTraining = _tuningSnapshots.value
             if (allTraining.size < 2) return@launch
 
-            _tuningStep.value = "Computing fingerprints..."
-
-            val allNames = allTraining.flatMap { it.names.entries }.associate { it.key to it.value }
-            val allCategories = allTraining.flatMap { it.categories.entries }.associate { it.key to it.value }
-
-            val validAddresses = allTraining.flatMap { training ->
-                val counts = mutableMapOf<String, Int>()
-                for (scan in training.rawScans) {
-                    for (addr in scan.keys) counts[addr] = (counts[addr] ?: 0) + 1
-                }
-                counts.filter { it.value >= MIN_SIGHTINGS }
-                    .filter { allCategories[it.key] != ProximityScanner.DeviceCategory.MOBILE }
-                    .filter { allNames[it.key] != null }
-                    .keys
-            }.toSet()
-
             val roomResults = mutableMapOf<String, CalibrationQuality>()
             val warnings = mutableListOf<String>()
 
-            configStore.update { config ->
-                val roomMeans = allTraining.associate { training ->
-                    training.roomId to computeBeaconMeans(training.rawScans, validAddresses)
-                }
+            try {
+                _tuningStep.value = "Computing fingerprints..."
 
-                val updatedRooms = config.rooms.map { room ->
-                    val training = allTraining.find { it.roomId == room.id } ?: return@map room
+                val allNames = allTraining.flatMap { it.names.entries }.associate { it.key to it.value }
+                val allCategories = allTraining.flatMap { it.categories.entries }.associate { it.key to it.value }
 
-                    val fingerprints = buildFingerprints(training.rawScans, validAddresses)
-                    val otherRoomMeans = roomMeans.filter { it.key != room.id }
-                    val profiles = computeBeaconProfiles(
-                        training.rawScans, validAddresses, allNames, otherRoomMeans
-                    )
+                val validAddresses = allTraining.flatMap { training ->
+                    val counts = mutableMapOf<String, Int>()
+                    for (scan in training.rawScans) {
+                        for (addr in scan.keys) counts[addr] = (counts[addr] ?: 0) + 1
+                    }
+                    counts.filter { it.value >= MIN_SIGHTINGS }
+                        .filter { allCategories[it.key] != ProximityScanner.DeviceCategory.MOBILE }
+                        .filter { allNames[it.key] != null }
+                        .keys
+                }.toSet()
 
-                    // Quality assessment
-                    val quality = assessQuality(room.name, profiles, warnings)
-                    roomResults[room.id] = quality
-
-                    Log.d(TAG, "Tuned ${room.name}: ${fingerprints.size} fp, ${profiles.size} profiles, quality=$quality")
-                    profiles.sortedByDescending { it.weight }.take(6).forEach { p ->
-                        Log.d(TAG, "  ${p.name}: mean=${p.meanRssi}, var=${String.format("%.1f", p.variance)}, " +
-                            "vis=${String.format("%.0f%%", p.visibilityRate * 100)}, " +
-                            "disc=${String.format("%.1f", p.discriminationScore)}, " +
-                            "w=${String.format("%.2f", p.weight)}")
+                configStore.update { config ->
+                    val roomMeans = allTraining.associate { training ->
+                        training.roomId to computeBeaconMeans(training.rawScans, validAddresses)
                     }
 
-                    room.copy(
-                        fingerprints = fingerprints,
-                        beaconProfiles = profiles,
-                        calibrationQuality = quality
-                    )
-                }
-                config.copy(rooms = updatedRooms)
-            }
+                    val updatedRooms = config.rooms.map { room ->
+                        val training = allTraining.find { it.roomId == room.id } ?: return@map room
 
-            roomDetector.reset()
-            roomDetector.resume()
-            // Seed room from last scanned room in wizard
-            val lastTraining = allTraining.lastOrNull()
-            if (lastTraining != null) {
-                val lastRoom = configStore.config.value.rooms.find { it.id == lastTraining.roomId }
-                if (lastRoom != null) {
-                    roomDetector.seedRoom(DetectedRoom(lastRoom.id, lastRoom.name, lastRoom.playerId, lastRoom.playerName))
+                        val fingerprints = buildFingerprints(training.rawScans, validAddresses)
+                        val otherRoomMeans = roomMeans.filter { it.key != room.id }
+                        val profiles = computeBeaconProfiles(
+                            training.rawScans, validAddresses, allNames, otherRoomMeans
+                        )
+
+                        val quality = assessQuality(room.name, profiles, warnings)
+                        roomResults[room.id] = quality
+
+                        Log.d(TAG, "Tuned ${room.name}: ${fingerprints.size} fp, ${profiles.size} profiles, quality=$quality")
+                        profiles.sortedByDescending { it.weight }.take(6).forEach { p ->
+                            Log.d(TAG, "  ${p.name}: mean=${p.meanRssi}, var=${String.format("%.1f", p.variance)}, " +
+                                "vis=${String.format("%.0f%%", p.visibilityRate * 100)}, " +
+                                "disc=${String.format("%.1f", p.discriminationScore)}, " +
+                                "w=${String.format("%.2f", p.weight)}")
+                        }
+
+                        room.copy(fingerprints = fingerprints, beaconProfiles = profiles, calibrationQuality = quality)
+                    }
+                    config.copy(rooms = updatedRooms)
                 }
+
+                roomDetector.reset()
+                val lastTraining = allTraining.lastOrNull()
+                if (lastTraining != null) {
+                    val lastRoom = configStore.config.value.rooms.find { it.id == lastTraining.roomId }
+                    if (lastRoom != null) {
+                        roomDetector.seedRoom(DetectedRoom(lastRoom.id, lastRoom.name, lastRoom.playerId, lastRoom.playerName))
+                    }
+                }
+
+                Log.d(TAG, "Calibration complete: ${roomResults.values.groupBy { it }.mapValues { it.value.size }}")
+            } finally {
+                _tuningSnapshots.value = emptyList()
+                _tuningStep.value = null
+                _tuningResult.value = TuningResult(roomResults, warnings)
+                roomDetector.resume()
             }
-            _tuningSnapshots.value = emptyList()
-            _tuningStep.value = null
-            _tuningResult.value = TuningResult(roomResults, warnings)
-            Log.d(TAG, "Calibration complete: ${roomResults.values.groupBy { it }.mapValues { it.value.size }}")
         }
     }
 
