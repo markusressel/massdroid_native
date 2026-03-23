@@ -196,26 +196,49 @@ fun RoomSetupScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
             ) {
-                if (isCalibrating) {
-                    androidx.compose.material3.CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Calibrating ($autoProgress/${net.asksakis.massdroidv2.data.proximity.ProximityScanner.AUTO_FINGERPRINT_CYCLES})...")
-                } else {
-                    Icon(Icons.Default.BluetoothSearching, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (existingRoom?.fingerprints?.isNotEmpty() == true) "Recalibrate" else "Calibrate")
-                }
+                Icon(Icons.Default.BluetoothSearching, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (existingRoom?.fingerprints?.isNotEmpty() == true) "Recalibrate" else "Calibrate")
             }
 
             if (isCalibrating) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Walk around the room slowly",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.padding(horizontal = 16.dp)
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Sensors, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Calibrating")
+                        }
+                    },
+                    text = {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "Scanning $autoProgress/${net.asksakis.massdroidv2.data.proximity.ProximityScanner.AUTO_FINGERPRINT_CYCLES}",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Walk around the room slowly",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.tertiary
+                            )
+                        }
+                    },
+                    confirmButton = {}
                 )
             }
 

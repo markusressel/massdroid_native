@@ -7,6 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -24,28 +26,42 @@ class ProximityConfigStore @Inject constructor(
     private val file: File get() = File(context.filesDir, CONFIG_FILE)
     private val _config = MutableStateFlow(ProximityConfig())
     val config: StateFlow<ProximityConfig> = _config.asStateFlow()
-
+    private val mutex = Mutex()
 
     suspend fun load() = withContext(Dispatchers.IO) {
-        try {
-            val text = file.readText()
-            _config.value = json.decodeFromString<ProximityConfig>(text)
-        } catch (e: Exception) {
-            Log.d(TAG, "No config or corrupt: ${e.message}")
-            _config.value = ProximityConfig()
+        mutex.withLock {
+            try {
+                val text = file.readText()
+                _config.value = json.decodeFromString<ProximityConfig>(text)
+            } catch (e: Exception) {
+                Log.d(TAG, "No config or corrupt: ${e.message}")
+                _config.value = ProximityConfig()
+            }
         }
     }
 
     suspend fun save(config: ProximityConfig) = withContext(Dispatchers.IO) {
-        try {
-            file.writeText(json.encodeToString(ProximityConfig.serializer(), config))
-            _config.value = config
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save config: ${e.message}")
+        mutex.withLock {
+            try {
+                file.writeText(json.encodeToString(ProximityConfig.serializer(), config))
+                _config.value = config
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save config: ${e.message}")
+            }
         }
     }
 
     suspend fun update(transform: (ProximityConfig) -> ProximityConfig) {
-        save(transform(_config.value))
+        mutex.withLock {
+            val updated = transform(_config.value)
+            withContext(Dispatchers.IO) {
+                try {
+                    file.writeText(json.encodeToString(ProximityConfig.serializer(), updated))
+                    _config.value = updated
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to save config: ${e.message}")
+                }
+            }
+        }
     }
 }
