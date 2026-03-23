@@ -64,9 +64,10 @@ class RoomDetector @Inject constructor() {
         val allDistances = mutableListOf<FpEntry>()
         for (room in eligibleRooms) {
             val rules = room.detectionPolicy.rules()
-            val roomAddresses = room.fingerprints.flatMap { it.samples.keys }.toSet()
-            val roomMatched = scanResults.keys.count { it in roomAddresses }
-            if (roomMatched < rules.minCoverage) continue
+            // Coverage gate: BLE beacons only (WiFi is support, not primary)
+            val bleAddresses = room.fingerprints.flatMap { it.samples.keys }.filter { !it.startsWith("wifi:") }.toSet()
+            val bleMatched = scanResults.keys.count { it in bleAddresses }
+            if (bleMatched < rules.minCoverage) continue
 
             val weights = roomWeights[room.id] ?: emptyMap()
             for (fp in room.fingerprints) {

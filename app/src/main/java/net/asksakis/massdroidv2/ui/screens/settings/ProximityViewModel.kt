@@ -36,6 +36,7 @@ private const val MIN_SIGHTINGS = 2
 private const val FINGERPRINTS_PER_ROOM = 8
 private const val MIN_WEIGHT = 0.15
 private const val MAX_WEIGHT = 2.5
+private const val WIFI_MAX_WEIGHT = 0.5
 
 // Quality gate thresholds
 
@@ -154,6 +155,12 @@ class ProximityViewModel @Inject constructor(
                         if (d.category != ProximityScanner.DeviceCategory.UNKNOWN) categoryMap[d.address] = d.category
                         addressTypes[d.address] = d.addressType
                     }
+                    // Add WiFi APs as additional fingerprint data
+                    val wifiSnapshot = scanner.readWifiSnapshot()
+                    scanMap.putAll(wifiSnapshot)
+                    wifiSnapshot.keys.forEach { addr ->
+                        addressTypes[addr] = ProximityScanner.AddressType.PUBLIC
+                    }
                     rawScans.add(scanMap)
                     _autoFingerprintProgress.value = i
                 }
@@ -161,7 +168,8 @@ class ProximityViewModel @Inject constructor(
 
                 val counts = mutableMapOf<String, Int>()
                 for (scan in rawScans) for (addr in scan.keys) counts[addr] = (counts[addr] ?: 0) + 1
-                Log.d(TAG, "Calibration scan: ${counts.size} unique devices in ${rawScans.size} scans")
+                val wifiCount = counts.keys.count { it.startsWith("wifi:") }
+                Log.d(TAG, "Calibration scan: ${counts.size} unique devices (${wifiCount} WiFi APs) in ${rawScans.size} scans")
                 counts.entries.sortedByDescending { it.value }.take(20).forEach { (addr, seen) ->
                     val name = nameMap[addr]
                     val cat = categoryMap[addr] ?: ProximityScanner.DeviceCategory.UNKNOWN
@@ -272,6 +280,9 @@ class ProximityViewModel @Inject constructor(
                         if (d.category != ProximityScanner.DeviceCategory.UNKNOWN) categoryMap[d.address] = d.category
                         addrTypeMap[d.address] = d.addressType
                     }
+                    val wifiSnapshot = scanner.readWifiSnapshot()
+                    scanMap.putAll(wifiSnapshot)
+                    wifiSnapshot.keys.forEach { addr -> addrTypeMap[addr] = ProximityScanner.AddressType.PUBLIC }
                     rawScans.add(scanMap)
                     _autoFingerprintProgress.value = i
                 }
@@ -380,10 +391,12 @@ class ProximityViewModel @Inject constructor(
             return CalibrationQuality.WEAK
         }
 
-        val usableCount = profiles.count { it.weight > MIN_WEIGHT }
-        val avgVisibility = profiles.map { it.visibilityRate }.average()
-        val discriminativeCount = profiles.count { it.discriminationScore > DISCRIMINATIVE_THRESHOLD }
-        val floorRatio = profiles.count { it.weight <= MIN_WEIGHT + 0.01 }.toDouble() / profiles.size
+        // Quality based on BLE beacons only (WiFi is support layer, not primary)
+        val bleProfiles = profiles.filter { !it.address.startsWith("wifi:") }
+        val usableCount = bleProfiles.count { it.weight > MIN_WEIGHT }
+        val avgVisibility = bleProfiles.map { it.visibilityRate }.average().takeIf { !it.isNaN() } ?: 0.0
+        val discriminativeCount = bleProfiles.count { it.discriminationScore > DISCRIMINATIVE_THRESHOLD }
+        val floorRatio = if (bleProfiles.isNotEmpty()) bleProfiles.count { it.weight <= MIN_WEIGHT + 0.01 }.toDouble() / bleProfiles.size else 1.0
 
         val rules = policy.rules()
         var isGood = true
@@ -490,7 +503,9 @@ class ProximityViewModel @Inject constructor(
 
             val stability = 1.0 / (1.0 + sqrt(variance) / 4.0)
             val discriminationBoost = 1.0 + discriminationScore.coerceAtLeast(0.0) / 20.0
-            val weight = (visibilityRate * stability * discriminationBoost).coerceIn(MIN_WEIGHT, MAX_WEIGHT)
+            val isWifi = addr.startsWith("wifi:")
+            val maxW = if (isWifi) WIFI_MAX_WEIGHT else MAX_WEIGHT
+            val weight = (visibilityRate * stability * discriminationBoost).coerceIn(MIN_WEIGHT, maxW)
 
             BeaconProfile(addr, allNames[addr] ?: addr, mean.toInt(), variance, visibilityRate, discriminationScore, weight)
         }

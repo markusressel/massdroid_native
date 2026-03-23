@@ -204,6 +204,24 @@ class ProximityScanner @Inject constructor(
 
     fun isAvailable(): Boolean = getScanner() != null
 
+    /** Read current WiFi scan results as address->RSSI map. Opportunistic: uses cached OS results with freshness check. */
+    @SuppressLint("MissingPermission")
+    fun readWifiSnapshot(): Map<String, Int> {
+        val wifiManager = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            ?: return emptyMap()
+        return try {
+            val now = android.os.SystemClock.elapsedRealtime()
+            @Suppress("DEPRECATION")
+            wifiManager.scanResults
+                .filter { it.BSSID != null && it.level > -90 }
+                .filter { (now - it.timestamp / 1000) < WIFI_FRESHNESS_MS }
+                .associate { "wifi:${it.BSSID}" to it.level }
+        } catch (_: SecurityException) {
+            emptyMap()
+        }
+    }
+
+
     @SuppressLint("MissingPermission")
     suspend fun scanOnce(lowPower: Boolean = true): List<ScannedDevice> {
         val scanner = getScanner() ?: return emptyList()
@@ -372,6 +390,8 @@ class ProximityScanner @Inject constructor(
 
     companion object {
         const val BLE_SCAN_ACTION = "net.asksakis.massdroidv2.BLE_SCAN_RESULT"
+        const val AUTO_FINGERPRINT_CYCLES = 10
+        private const val WIFI_FRESHNESS_MS = 60_000L
         private const val APPLE_COMPANY_ID = 0x004C
         private const val TILE_COMPANY_ID = 0x00D7
         private val SMARTTAG_UUID = ParcelUuid.fromString("0000FD5A-0000-1000-8000-00805F9B34FB")
@@ -383,6 +403,5 @@ class ProximityScanner @Inject constructor(
             0x0080, 0x0140, 0x0141, 0x0180, 0x0181, 0x0280,
             0x0840, 0x0841, 0x0842, 0x0843, 0x0844
         )
-        const val AUTO_FINGERPRINT_CYCLES = 10
     }
 }

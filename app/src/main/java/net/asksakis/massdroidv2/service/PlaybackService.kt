@@ -320,7 +320,8 @@ class PlaybackService : MediaLibraryService() {
             val config = proximityConfigStore.config.value
             if (!config.enabled || !isWithinSchedule()) return
             if (System.currentTimeMillis() - lastRoomSwitchMs < COOLDOWN_AFTER_SWITCH_MS) return
-            val rssiMap = results.associate { it.device.address to it.rssi }
+            val rssiMap = results.associate { it.device.address to it.rssi }.toMutableMap()
+            rssiMap.putAll(proximityScanner.readWifiSnapshot())
             val detected = roomDetector.detect(rssiMap, config)
             if (detected != null) {
                 Log.d(TAG, "Background room change: ${detected.roomName}")
@@ -473,9 +474,12 @@ class PlaybackService : MediaLibraryService() {
 
         try {
             val devices = proximityScanner.readSnapshot()
-            Log.d(TAG, "BLE snapshot ($trigger): ${devices.size} devices")
+            val rssiMap = devices.associate { it.address to it.rssi }.toMutableMap()
+            // Merge WiFi APs for richer fingerprint matching
+            rssiMap.putAll(proximityScanner.readWifiSnapshot())
+            Log.d(TAG, "BLE snapshot ($trigger): ${devices.size} BLE + ${rssiMap.size - devices.size} WiFi")
 
-            val detected = roomDetector.detect(devices.associate { it.address to it.rssi }, config)
+            val detected = roomDetector.detect(rssiMap, config)
 
             if (detected != null) handleRoomChange(detected, config)
         } catch (e: Exception) {
