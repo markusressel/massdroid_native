@@ -231,6 +231,18 @@ fun RoomSetupScreen(
 
         }
     }
+
+    val calibrationError by viewModel.calibrationError.collectAsStateWithLifecycle()
+    calibrationError?.let { error ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissCalibrationError() },
+            title = { Text("Calibration Failed") },
+            text = { Text(error) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.dismissCalibrationError() }) { Text("OK") }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

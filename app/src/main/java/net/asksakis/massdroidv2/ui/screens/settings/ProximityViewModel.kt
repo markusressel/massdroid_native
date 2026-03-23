@@ -66,6 +66,10 @@ class ProximityViewModel @Inject constructor(
         viewModelScope.launch { configStore.load() }
     }
 
+    private val _calibrationError = MutableStateFlow<String?>(null)
+    val calibrationError: StateFlow<String?> = _calibrationError.asStateFlow()
+    fun dismissCalibrationError() { _calibrationError.value = null }
+
     fun loadPlaylists() {
         viewModelScope.launch {
             try { _playlists.value = musicRepository.getPlaylists() } catch (_: Exception) { }
@@ -110,7 +114,8 @@ class ProximityViewModel @Inject constructor(
                 name = name, playerId = playerId, playerName = playerName,
                 fingerprints = existing?.fingerprints ?: emptyList(),
                 beaconProfiles = existing?.beaconProfiles ?: emptyList(),
-                calibrationQuality = existing?.calibrationQuality ?: CalibrationQuality.UNCALIBRATED
+                calibrationQuality = existing?.calibrationQuality ?: CalibrationQuality.UNCALIBRATED,
+                playbackConfig = existing?.playbackConfig ?: RoomPlaybackConfig()
             )
             configStore.update { config ->
                 val updated = config.rooms.toMutableList()
@@ -133,6 +138,7 @@ class ProximityViewModel @Inject constructor(
                 val rawScans = mutableListOf<Map<String, Int>>()
                 val nameMap = mutableMapOf<String, String?>()
                 val categoryMap = mutableMapOf<String, ProximityScanner.DeviceCategory>()
+                val addressTypes = mutableMapOf<String, ProximityScanner.AddressType>()
 
                 for (i in 1..AUTO_FINGERPRINT_CYCLES) {
                     val devices = scanner.scanOnce(lowPower = false)
@@ -141,6 +147,7 @@ class ProximityViewModel @Inject constructor(
                         scanMap[d.address] = d.rssi
                         if (d.name != null) nameMap[d.address] = d.name
                         if (d.category != ProximityScanner.DeviceCategory.UNKNOWN) categoryMap[d.address] = d.category
+                        addressTypes[d.address] = d.addressType
                     }
                     rawScans.add(scanMap)
                     _autoFingerprintProgress.value = i
@@ -149,39 +156,57 @@ class ProximityViewModel @Inject constructor(
 
                 val counts = mutableMapOf<String, Int>()
                 for (scan in rawScans) for (addr in scan.keys) counts[addr] = (counts[addr] ?: 0) + 1
+                Log.d(TAG, "Calibration scan: ${counts.size} unique devices in ${rawScans.size} scans")
+                counts.entries.sortedByDescending { it.value }.take(20).forEach { (addr, seen) ->
+                    val name = nameMap[addr]
+                    val cat = categoryMap[addr] ?: ProximityScanner.DeviceCategory.UNKNOWN
+                    val addrType = addressTypes[addr] ?: ProximityScanner.AddressType.PUBLIC
+                    Log.d(TAG, "  $addr seen=$seen name=${name ?: "(unnamed)"} cat=$cat addr=$addrType")
+                }
+
+                // Use stable-address, non-mobile devices (Public + Random Static are trackable)
                 val validAddresses = counts
                     .filter { it.value >= MIN_SIGHTINGS }
                     .filter { categoryMap[it.key] != ProximityScanner.DeviceCategory.MOBILE }
-                    .filter { nameMap[it.key] != null }
+                    .filter { scanner.isStableAddress(addressTypes[it.key] ?: ProximityScanner.AddressType.PUBLIC) }
                     .keys
+                Log.d(TAG, "Valid addresses: ${validAddresses.size} (stable, non-mobile, seen 2+)")
 
                 val config = configStore.config.value
                 val otherRoomMeans = config.rooms
                     .filter { it.id != roomId && it.beaconProfiles.isNotEmpty() }
                     .associate { room -> room.id to room.beaconProfiles.associate { it.address to it.meanRssi.toDouble() } }
 
-                val fingerprints = buildFingerprints(rawScans, validAddresses)
-                val allNames = nameMap.mapValues { it.value }
-                val profiles = computeBeaconProfiles(rawScans, validAddresses, allNames, otherRoomMeans)
-                val warnings = mutableListOf<String>()
-                val room = config.rooms.find { it.id == roomId }
-                val quality = assessQuality(room?.name ?: roomId, profiles, warnings)
+                if (validAddresses.isEmpty()) {
+                    Log.w(TAG, "Calibration failed: no named BLE devices found")
+                    val totalDevices = counts.size
+                    val mobileCount = counts.keys.count { categoryMap[it] == ProximityScanner.DeviceCategory.MOBILE }
+                    val rpaCount = counts.keys.count { addressTypes[it] == ProximityScanner.AddressType.RPA }
+                    _calibrationError.value = "No usable BLE devices found ($totalDevices seen, $mobileCount mobile, $rpaCount rotating). Need stationary devices with stable addresses (TVs, speakers, routers, access points)."
+                } else {
+                    val fingerprints = buildFingerprints(rawScans, validAddresses)
+                    val allNames = nameMap.mapValues { it.value }
+                    val profiles = computeBeaconProfiles(rawScans, validAddresses, allNames, otherRoomMeans)
+                    val warnings = mutableListOf<String>()
+                    val room = config.rooms.find { it.id == roomId }
+                    val quality = assessQuality(room?.name ?: roomId, profiles, warnings)
 
-                configStore.update { cfg ->
-                    val updated = cfg.rooms.map { r ->
-                        if (r.id != roomId) return@map r
-                        r.copy(fingerprints = fingerprints, beaconProfiles = profiles, calibrationQuality = quality)
+                    configStore.update { cfg ->
+                        val updated = cfg.rooms.map { r ->
+                            if (r.id != roomId) return@map r
+                            r.copy(fingerprints = fingerprints, beaconProfiles = profiles, calibrationQuality = quality)
+                        }
+                        cfg.copy(rooms = updated)
                     }
-                    cfg.copy(rooms = updated)
-                }
 
-                roomDetector.reset()
-                if (room != null) {
-                    roomDetector.seedRoom(DetectedRoom(room.id, room.name, room.playerId, room.playerName))
-                }
+                    roomDetector.reset()
+                    if (room != null && quality == CalibrationQuality.GOOD) {
+                        roomDetector.seedRoom(DetectedRoom(room.id, room.name, room.playerId, room.playerName))
+                    }
 
-                Log.d(TAG, "Single-room calibration: ${room?.name}, ${fingerprints.size} fp, ${profiles.size} profiles, quality=$quality")
-                if (warnings.isNotEmpty()) warnings.forEach { Log.w(TAG, "  $it") }
+                    Log.d(TAG, "Single-room calibration: ${room?.name}, ${fingerprints.size} fp, ${profiles.size} profiles, quality=$quality")
+                    if (warnings.isNotEmpty()) warnings.forEach { Log.w(TAG, "  $it") }
+                }
                 onDone()
             } finally {
                 _autoFingerprintProgress.value = null
@@ -197,7 +222,8 @@ class ProximityViewModel @Inject constructor(
         val roomName: String,
         val rawScans: List<Map<String, Int>>,
         val names: Map<String, String?>,
-        val categories: Map<String, ProximityScanner.DeviceCategory>
+        val categories: Map<String, ProximityScanner.DeviceCategory>,
+        val addressTypes: Map<String, ProximityScanner.AddressType> = emptyMap()
     )
 
     data class TuningResult(
@@ -225,6 +251,7 @@ class ProximityViewModel @Inject constructor(
                 val rawScans = mutableListOf<Map<String, Int>>()
                 val nameMap = mutableMapOf<String, String?>()
                 val categoryMap = mutableMapOf<String, ProximityScanner.DeviceCategory>()
+                val addrTypeMap = mutableMapOf<String, ProximityScanner.AddressType>()
                 _autoFingerprintProgress.value = 0
 
                 for (i in 1..AUTO_FINGERPRINT_CYCLES) {
@@ -234,12 +261,13 @@ class ProximityViewModel @Inject constructor(
                         scanMap[d.address] = d.rssi
                         if (d.name != null) nameMap[d.address] = d.name
                         if (d.category != ProximityScanner.DeviceCategory.UNKNOWN) categoryMap[d.address] = d.category
+                        addrTypeMap[d.address] = d.addressType
                     }
                     rawScans.add(scanMap)
                     _autoFingerprintProgress.value = i
                 }
 
-                val training = RoomTrainingData(roomId, roomName, rawScans, nameMap, categoryMap)
+                val training = RoomTrainingData(roomId, roomName, rawScans, nameMap, categoryMap, addrTypeMap)
                 _tuningSnapshots.value = _tuningSnapshots.value + training
                 Log.d(TAG, "Training data for $roomName: ${rawScans.size} scans, ${nameMap.size} devices seen")
                 onDone()
@@ -266,6 +294,8 @@ class ProximityViewModel @Inject constructor(
                 val allNames = allTraining.flatMap { it.names.entries }.associate { it.key to it.value }
                 val allCategories = allTraining.flatMap { it.categories.entries }.associate { it.key to it.value }
 
+                val allAddressTypes = allTraining.flatMap { it.addressTypes.entries }
+                    .associate { it.key to it.value }
                 val validAddresses = allTraining.flatMap { training ->
                     val counts = mutableMapOf<String, Int>()
                     for (scan in training.rawScans) {
@@ -273,7 +303,7 @@ class ProximityViewModel @Inject constructor(
                     }
                     counts.filter { it.value >= MIN_SIGHTINGS }
                         .filter { allCategories[it.key] != ProximityScanner.DeviceCategory.MOBILE }
-                        .filter { allNames[it.key] != null }
+                        .filter { scanner.isStableAddress(allAddressTypes[it.key] ?: ProximityScanner.AddressType.PUBLIC) }
                         .keys
                 }.toSet()
 

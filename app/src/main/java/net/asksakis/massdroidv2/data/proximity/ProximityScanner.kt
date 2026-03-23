@@ -39,13 +39,52 @@ class ProximityScanner @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     enum class DeviceCategory { STATIONARY, MOBILE, UNKNOWN }
+    enum class AddressType { PUBLIC, RANDOM_STATIC, RPA, NRPA }
 
     data class ScannedDevice(
         val address: String,
         val name: String?,
         val rssi: Int,
-        val category: DeviceCategory = DeviceCategory.UNKNOWN
+        val category: DeviceCategory = DeviceCategory.UNKNOWN,
+        val addressType: AddressType = AddressType.PUBLIC
     )
+
+    /**
+     * Classify BLE address type. Uses BluetoothDevice.getAddressType() on API 34+
+     * for reliable Public vs Random distinction. Falls back to top-2-bit heuristic.
+     */
+    @SuppressLint("NewApi")
+    fun classifyAddressType(address: String, result: ScanResult? = null): AddressType {
+        val firstByte = address.split(":").firstOrNull()?.toIntOrNull(16) ?: return AddressType.PUBLIC
+
+        // API 34+: system knows if address is Public or Random
+        if (Build.VERSION.SDK_INT >= 34 && result != null) {
+            val deviceType = result.device.addressType
+            // ADDRESS_TYPE_RANDOM = 1
+            if (deviceType == 1) {
+                return when (firstByte and 0xC0) {
+                    0xC0 -> AddressType.RANDOM_STATIC
+                    0x40 -> AddressType.RPA
+                    else -> AddressType.NRPA
+                }
+            }
+            // ADDRESS_TYPE_PUBLIC = 0 or UNKNOWN
+            return AddressType.PUBLIC
+        }
+
+        // Fallback: top 2 bits heuristic (can't distinguish Public from NRPA)
+        return when (firstByte and 0xC0) {
+            0xC0 -> AddressType.RANDOM_STATIC
+            0x40 -> AddressType.RPA
+            // 0x00: ambiguous (Public or NRPA). Default to PUBLIC;
+            // truly rotating devices get filtered by visibility threshold anyway
+            else -> AddressType.PUBLIC
+        }
+    }
+
+    /** Whether address is stable (usable for fingerprinting) */
+    fun isStableAddress(addressType: AddressType): Boolean =
+        addressType == AddressType.PUBLIC || addressType == AddressType.RANDOM_STATIC
 
     // Persistent background scan: start once, read snapshot anytime
     private val persistentDevices = ConcurrentHashMap<String, ScannedDevice>()
@@ -69,7 +108,7 @@ class ProximityScanner @Inject constructor(
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val addr = result.device.address ?: return
                 val name = try { result.device.name } catch (_: SecurityException) { null }
-                persistentDevices[addr] = ScannedDevice(addr, name, result.rssi, classifyDevice(result))
+                persistentDevices[addr] = ScannedDevice(addr, name, result.rssi, classifyDevice(result), classifyAddressType(addr, result))
                 persistentLastSeen[addr] = System.currentTimeMillis()
                 lastPersistentCallbackMs = System.currentTimeMillis()
             }
@@ -145,7 +184,7 @@ class ProximityScanner @Inject constructor(
         for (result in results) {
             val addr = result.device?.address ?: continue
             val name = try { result.device.name } catch (_: SecurityException) { null }
-            persistentDevices[addr] = ScannedDevice(addr, name, result.rssi, classifyDevice(result))
+            persistentDevices[addr] = ScannedDevice(addr, name, result.rssi, classifyDevice(result), classifyAddressType(addr, result))
             persistentLastSeen[addr] = System.currentTimeMillis()
         }
         lastBackgroundDeliveryMs = System.currentTimeMillis()
@@ -177,7 +216,7 @@ class ProximityScanner @Inject constructor(
                     override fun onScanResult(callbackType: Int, result: ScanResult) {
                         val addr = result.device.address ?: return
                         val name = try { result.device.name } catch (_: SecurityException) { null }
-                        devices[addr] = ScannedDevice(addr, name, result.rssi, classifyDevice(result))
+                        devices[addr] = ScannedDevice(addr, name, result.rssi, classifyDevice(result), classifyAddressType(addr, result))
                     }
 
                     override fun onScanFailed(errorCode: Int) {
