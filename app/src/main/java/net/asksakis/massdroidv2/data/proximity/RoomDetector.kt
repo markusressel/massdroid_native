@@ -43,7 +43,8 @@ class RoomDetector @Inject constructor() {
     }
 
     fun detect(scanResults: Map<String, Int>, config: ProximityConfig): DetectedRoom? {
-        if (suppressed || config.rooms.isEmpty() || scanResults.isEmpty()) return null
+        if (suppressed || config.rooms.isEmpty()) return null
+        if (scanResults.isEmpty()) return handleNoMatch("empty scan")
 
         // Build eligible rooms using centralized policy rules
         val eligibleRooms = config.rooms.filter { room ->
@@ -83,17 +84,7 @@ class RoomDetector @Inject constructor() {
             }
         }
 
-        if (allDistances.isEmpty()) {
-            noMatchStreak++
-            if (noMatchStreak >= NO_MATCH_CLEAR_THRESHOLD && _currentRoom.value != null) {
-                Log.d(TAG, "k-NN: left all rooms (no match x$noMatchStreak)")
-                resetConfidence()
-                _currentRoom.value = null
-            } else {
-                Log.d(TAG, "k-NN: skip (devices=${scanResults.size}, no room matched coverage)")
-            }
-            return null
-        }
+        if (allDistances.isEmpty()) return handleNoMatch("devices=${scanResults.size}, no coverage")
         noMatchStreak = 0
 
         val topK = allDistances.sortedBy { it.distance }.take(KNN_K)
@@ -144,6 +135,18 @@ class RoomDetector @Inject constructor() {
         resetConfidence()
         noMatchStreak = 0
         _currentRoom.value = null
+    }
+
+    private fun handleNoMatch(reason: String): DetectedRoom? {
+        noMatchStreak++
+        if (noMatchStreak >= NO_MATCH_CLEAR_THRESHOLD && _currentRoom.value != null) {
+            Log.d(TAG, "k-NN: left all rooms ($reason x$noMatchStreak)")
+            resetConfidence()
+            _currentRoom.value = null
+        } else {
+            Log.d(TAG, "k-NN: skip ($reason, streak=$noMatchStreak)")
+        }
+        return null
     }
 
     private fun fingerprintDistance(

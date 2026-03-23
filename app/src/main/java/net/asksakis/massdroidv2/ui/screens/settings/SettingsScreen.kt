@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
@@ -172,7 +173,7 @@ private fun CategoryList(
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
 
     Column(modifier = modifier.fillMaxSize()) {
-        ConnectionStatusCard(connectionState = connectionState)
+        ConnectionStatusCard(connectionState = connectionState, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
         ListItem(
             headlineContent = { Text("Connection") },
@@ -203,6 +204,8 @@ private fun CategoryList(
             )
         }
         HorizontalDivider()
+        ThemeSelector(viewModel)
+        HorizontalDivider()
         ListItem(
             headlineContent = { Text("About") },
             supportingContent = { Text("App version and update management") },
@@ -212,6 +215,30 @@ private fun CategoryList(
             modifier = Modifier.clickable { onSelect(SettingsCategory.ABOUT) }
         )
     }
+}
+
+@Composable
+private fun ThemeSelector(viewModel: SettingsViewModel) {
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle(initialValue = "auto")
+    val options = listOf("auto" to "Auto", "dark" to "Dark", "light" to "Light")
+
+    ListItem(
+        headlineContent = { Text("Theme") },
+        supportingContent = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                options.forEach { (value, label) ->
+                    androidx.compose.material3.FilterChip(
+                        selected = themeMode == value,
+                        onClick = { viewModel.setThemeMode(value) },
+                        label = { Text(label) }
+                    )
+                }
+            }
+        },
+        leadingContent = {
+            Icon(Icons.Default.DarkMode, contentDescription = null)
+        }
+    )
 }
 
 // endregion
@@ -290,9 +317,9 @@ private fun AboutScreen(viewModel: SettingsViewModel, modifier: Modifier = Modif
 // region Card Components
 
 @Composable
-private fun ConnectionStatusCard(connectionState: ConnectionState) {
+private fun ConnectionStatusCard(connectionState: ConnectionState, modifier: Modifier = Modifier) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = when (connectionState) {

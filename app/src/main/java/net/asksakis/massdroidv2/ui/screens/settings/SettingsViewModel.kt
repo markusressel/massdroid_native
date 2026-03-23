@@ -87,6 +87,9 @@ class SettingsViewModel @Inject constructor(
     val topAlbums: StateFlow<List<AlbumScore>> = _topAlbums.asStateFlow()
     private val _topGenres = MutableStateFlow<List<GenreScore>>(emptyList())
     val topGenres: StateFlow<List<GenreScore>> = _topGenres.asStateFlow()
+    val themeMode = settingsRepository.themeMode
+    fun setThemeMode(mode: String) { viewModelScope.launch { settingsRepository.setThemeMode(mode) } }
+
     private val _blockedArtists = MutableStateFlow<List<BlockedArtistInfo>>(emptyList())
     val blockedArtists: StateFlow<List<BlockedArtistInfo>> = _blockedArtists.asStateFlow()
     private val _updateUiState = MutableStateFlow(

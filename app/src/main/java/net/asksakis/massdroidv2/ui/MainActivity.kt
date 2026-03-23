@@ -82,6 +82,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var shortcutDispatcher: ShortcutActionDispatcher
     @Inject lateinit var providerManifestCache: net.asksakis.massdroidv2.data.provider.ProviderManifestCache
     @Inject lateinit var appUpdateChecker: net.asksakis.massdroidv2.data.update.AppUpdateChecker
+    @Inject lateinit var settingsRepository: net.asksakis.massdroidv2.domain.repository.SettingsRepository
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -94,10 +95,31 @@ class MainActivity : ComponentActivity() {
         checkBatteryOptimization()
         handleShortcutIntent(intent)
         setContent {
+            val themeMode by settingsRepository.themeMode.collectAsStateWithLifecycle(initialValue = "auto")
+            val darkTheme = when (themeMode) {
+                "dark" -> true
+                "light" -> false
+                else -> androidx.compose.foundation.isSystemInDarkTheme()
+            }
+            // Update status bar icons to match app theme (not system theme)
+            LaunchedEffect(darkTheme) {
+                enableEdgeToEdge(
+                    statusBarStyle = if (darkTheme) {
+                        androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                    },
+                    navigationBarStyle = if (darkTheme) {
+                        androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                    }
+                )
+            }
             androidx.compose.runtime.CompositionLocalProvider(
                 LocalProviderManifestCache provides providerManifestCache
             ) {
-                MassDroidTheme {
+                MassDroidTheme(darkTheme = darkTheme) {
                     MassDroidApp()
                     UpdatePrompt(appUpdateChecker)
                 }

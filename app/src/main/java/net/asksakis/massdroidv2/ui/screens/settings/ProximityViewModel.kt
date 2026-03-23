@@ -129,7 +129,7 @@ class ProximityViewModel @Inject constructor(
                 if (index >= 0) updated[index] = room else updated.add(room)
                 config.copy(rooms = updated)
             }
-            roomDetector.reset()
+            if (existing == null) roomDetector.reset()
             Log.d(TAG, "Room saved: ${room.name}")
         }
     }

@@ -43,6 +43,7 @@ class SettingsRepositoryImpl @Inject constructor(
         private val KEY_LIBRARY_SORT_DESC = stringPreferencesKey("library_sort_desc")
         private val KEY_LIBRARY_FAV_ONLY = stringPreferencesKey("library_fav_only")
         private val KEY_LASTFM_API_KEY = stringPreferencesKey("lastfm_api_key")
+        private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
     }
 
     private val safeData = context.dataStore.data
@@ -224,6 +225,14 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun setLastFmApiKey(key: String) {
         context.dataStore.edit { it[KEY_LASTFM_API_KEY] = key }
+    }
+
+    override val themeMode: Flow<String> = safeData.map { prefs ->
+        prefs[KEY_THEME_MODE] ?: "auto"
+    }
+
+    override suspend fun setThemeMode(mode: String) {
+        context.dataStore.edit { it[KEY_THEME_MODE] = mode }
     }
 
     override val libraryFavoritesOnly: Flow<Map<Int, Boolean>> = safeData.map { prefs ->

@@ -64,6 +64,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Offset
@@ -74,9 +75,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -123,6 +127,11 @@ private val smartMixPhrases = listOf(
     "Finding the sweet spot..."
 )
 
+private val HomeTitleFont = FontFamily(
+    Font(R.font.goldman_regular, FontWeight.Normal),
+    Font(R.font.goldman_bold, FontWeight.Bold)
+)
+
 // Fixed heights for LazyColumn item prefetch (avoids layout thrashing)
 private val ArtistRowHeight = 114.dp  // 90 image + 4 spacer + 20 text
 private val AlbumRowHeight = 148.dp   // 110 image + 4 spacer + 18 name + 16 artist
@@ -161,22 +170,25 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier.size(48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Image(
-                                painter = painterResource(id = R.mipmap.ic_launcher_foreground),
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .clip(MaterialTheme.shapes.small)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.logo_md_monochrome),
+                            contentDescription = null,
+                            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurface),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text(
+                            text = "MassDroid",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontFamily = HomeTitleFont,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 24.sp,
+                                lineHeight = 28.sp
                             )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("MassDroid")
+                        )
                     }
                 },
                 actions = {
@@ -1061,7 +1073,7 @@ private fun GenreChip(
                         blurRadius = 12f
                     )
                 ),
-                color = MaterialTheme.colorScheme.onSurface,
+                color = Color.White,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
