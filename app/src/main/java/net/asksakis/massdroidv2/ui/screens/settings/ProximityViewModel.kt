@@ -177,13 +177,19 @@ class ProximityViewModel @Inject constructor(
                     Log.d(TAG, "  $addr seen=$seen name=${name ?: "(unnamed)"} cat=$cat addr=$addrType")
                 }
 
-                // Use stable-address, non-mobile devices (Public + Random Static are trackable)
+                // Accept devices that are either:
+                // 1. Stable address type (Public/Random Static) + seen 2+, or
+                // 2. High visibility (70%+ scans) regardless of address type (observed MAC stability)
+                // Always exclude MOBILE devices
+                val highVisThreshold = (AUTO_FINGERPRINT_CYCLES * 0.7).toInt()
                 val validAddresses = counts
-                    .filter { it.value >= MIN_SIGHTINGS }
                     .filter { categoryMap[it.key] != ProximityScanner.DeviceCategory.MOBILE }
-                    .filter { scanner.isStableAddress(addressTypes[it.key] ?: ProximityScanner.AddressType.PUBLIC) }
+                    .filter { (addr, seen) ->
+                        val isStable = scanner.isStableAddress(addressTypes[addr] ?: ProximityScanner.AddressType.PUBLIC)
+                        (isStable && seen >= MIN_SIGHTINGS) || seen >= highVisThreshold
+                    }
                     .keys
-                Log.d(TAG, "Valid addresses: ${validAddresses.size} (stable, non-mobile, seen 2+)")
+                Log.d(TAG, "Valid addresses: ${validAddresses.size} (stable or high-visibility, non-mobile)")
 
                 val config = configStore.config.value
                 val otherRoomMeans = config.rooms
@@ -321,9 +327,13 @@ class ProximityViewModel @Inject constructor(
                     for (scan in training.rawScans) {
                         for (addr in scan.keys) counts[addr] = (counts[addr] ?: 0) + 1
                     }
-                    counts.filter { it.value >= MIN_SIGHTINGS }
+                    val hvThreshold = (training.rawScans.size * 0.7).toInt()
+                    counts
                         .filter { allCategories[it.key] != ProximityScanner.DeviceCategory.MOBILE }
-                        .filter { scanner.isStableAddress(allAddressTypes[it.key] ?: ProximityScanner.AddressType.PUBLIC) }
+                        .filter { (addr, seen) ->
+                            val isStable = scanner.isStableAddress(allAddressTypes[addr] ?: ProximityScanner.AddressType.PUBLIC)
+                            (isStable && seen >= MIN_SIGHTINGS) || seen >= hvThreshold
+                        }
                         .keys
                 }.toSet()
 
@@ -416,6 +426,16 @@ class ProximityViewModel @Inject constructor(
         if (floorRatio > MAX_FLOOR_RATIO) {
             warnings.add("$roomName: most beacon weights at minimum")
             isGood = false
+        }
+
+        // RELAXED: WiFi support can upgrade quality if BLE alone is insufficient
+        if (!isGood && rules.allowWifiOnly) {
+            val wifiProfiles = profiles.filter { it.address.startsWith("wifi:") }
+            val wifiUsable = wifiProfiles.count { it.weight > MIN_WEIGHT }
+            if (usableCount >= 1 && wifiUsable >= 2) {
+                Log.d(TAG, "$roomName: BLE-only WEAK, upgraded to GOOD with WiFi support ($usableCount BLE + $wifiUsable WiFi)")
+                return CalibrationQuality.GOOD
+            }
         }
 
         return if (isGood) CalibrationQuality.GOOD else CalibrationQuality.WEAK
