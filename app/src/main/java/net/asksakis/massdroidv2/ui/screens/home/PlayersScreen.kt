@@ -55,6 +55,12 @@ fun PlayersScreen(
     val isInitializing by viewModel.isInitializing.collectAsStateWithLifecycle()
     val suppressConnectionPrompt by viewModel.suppressConnectionPrompt.collectAsStateWithLifecycle()
     val sendspinClientId by viewModel.sendspinClientId.collectAsStateWithLifecycle(initialValue = null)
+    val proximityConfig by viewModel.proximityConfig.collectAsStateWithLifecycle(
+        initialValue = net.asksakis.massdroidv2.data.proximity.ProximityConfig()
+    )
+    val playerRoomMap = remember(proximityConfig) {
+        proximityConfig.rooms.associate { it.playerId to it.name }
+    }
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     Scaffold(
@@ -96,6 +102,7 @@ fun PlayersScreen(
                                 player = player,
                                 isSelected = player.playerId == selectedPlayer?.playerId,
                                 isLocalPlayer = sendspinClientId != null && player.playerId == sendspinClientId,
+                                roomName = playerRoomMap[player.playerId],
                                 onClick = { viewModel.selectPlayer(player) },
                                 onIconLongPress = { iconPickerPlayer = player },
                                 onQueueMenuClick = { queueMenuPlayer = player },
@@ -124,6 +131,7 @@ fun PlayersScreen(
                             player = player,
                             allPlayers = players.filter { it.available },
                             sendspinClientId = sendspinClientId,
+                            playerRoomMap = playerRoomMap,
                             onPlayerSettings = {
                                 settingsPlayer = player
                                 queueMenuPlayer = null
@@ -161,6 +169,7 @@ private fun PlayerListItem(
     player: Player,
     isSelected: Boolean,
     isLocalPlayer: Boolean = false,
+    roomName: String? = null,
     onClick: () -> Unit,
     onIconLongPress: () -> Unit,
     onQueueMenuClick: () -> Unit,
@@ -183,6 +192,7 @@ private fun PlayerListItem(
             PlayerNameWithBadge(
                 name = player.displayName,
                 isLocalPlayer = isLocalPlayer,
+                roomName = roomName,
                 fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else null
             )
         },
@@ -270,6 +280,7 @@ private fun PlayerQueueSheet(
     player: Player,
     allPlayers: List<Player>,
     sendspinClientId: String?,
+    playerRoomMap: Map<String, String> = emptyMap(),
     onPlayerSettings: () -> Unit,
     onClearQueue: () -> Unit,
     onTransferQueue: (targetId: String) -> Unit,
@@ -349,7 +360,8 @@ private fun PlayerQueueSheet(
                         headlineContent = {
                             PlayerNameWithBadge(
                                 name = target.displayName,
-                                isLocalPlayer = sendspinClientId != null && target.playerId == sendspinClientId
+                                isLocalPlayer = sendspinClientId != null && target.playerId == sendspinClientId,
+                                roomName = playerRoomMap[target.playerId]
                             )
                         },
                         leadingContent = {

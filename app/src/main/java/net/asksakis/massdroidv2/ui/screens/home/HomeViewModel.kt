@@ -26,7 +26,8 @@ class HomeViewModel @Inject constructor(
     private val playerRepository: PlayerRepository,
     private val musicRepository: MusicRepository,
     private val settingsRepository: SettingsRepository,
-    private val wsClient: MaWebSocketClient
+    private val wsClient: MaWebSocketClient,
+    private val proximityConfigStore: net.asksakis.massdroidv2.data.proximity.ProximityConfigStore
 ) : ViewModel() {
 
     val players = playerRepository.players
@@ -35,6 +36,7 @@ class HomeViewModel @Inject constructor(
     val elapsedTime = playerRepository.elapsedTime
     val queueState = playerRepository.queueState
     val sendspinClientId = settingsRepository.sendspinClientId
+    val proximityConfig = proximityConfigStore.config
 
     private val _isInitializing = MutableStateFlow(true)
     val isInitializing: StateFlow<Boolean> = _isInitializing.asStateFlow()

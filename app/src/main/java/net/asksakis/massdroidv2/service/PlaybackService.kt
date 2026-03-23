@@ -318,7 +318,7 @@ class PlaybackService : MediaLibraryService() {
             if (screenOn) return
 
             val config = proximityConfigStore.config.value
-            if (!config.enabled) return
+            if (!config.enabled || !isWithinSchedule()) return
             if (System.currentTimeMillis() - lastRoomSwitchMs < COOLDOWN_AFTER_SWITCH_MS) return
             val rssiMap = results.associate { it.device.address to it.rssi }
             val detected = roomDetector.detect(rssiMap, config)
@@ -399,6 +399,22 @@ class PlaybackService : MediaLibraryService() {
 
             // Main loop: screen-on = persistent snapshot, screen-off = PendingIntent background scan
             while (proximityConfigStore.config.value.enabled) {
+                // Fully suspend proximity subsystem outside schedule
+                if (!isWithinSchedule()) {
+                    proximityScanner.stopPersistentScan()
+                    proximityScanner.stopBackgroundScan()
+                    motionGate.stop()
+                    kotlinx.coroutines.delay(60_000)
+                    // Re-arm when back in schedule
+                    if (isWithinSchedule()) {
+                        motionGate.start()
+                        val addrs = proximityConfigStore.config.value.rooms
+                            .flatMap { r -> r.beaconProfiles.map { it.address } }.toSet()
+                        if (addrs.isNotEmpty()) proximityScanner.startBackgroundScan(addrs)
+                    }
+                    continue
+                }
+
                 val isMoving = motionGate.isMoving.value
                 val dm = getSystemService(android.content.Context.DISPLAY_SERVICE) as android.hardware.display.DisplayManager
                 val screenOn = dm.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.state == android.view.Display.STATE_ON
