@@ -162,33 +162,56 @@ fun RoomSetupScreen(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
                 // Detection policy
-                ListItem(
-                    headlineContent = { Text("Detection policy") },
-                    supportingContent = {
+                val isStrict = existingRoom.detectionPolicy == net.asksakis.massdroidv2.data.proximity.DetectionPolicy.STRICT
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            if (existingRoom.detectionPolicy == net.asksakis.massdroidv2.data.proximity.DetectionPolicy.STRICT)
-                                "Strict: requires strong calibration (multi-room homes)"
-                            else
-                                "Relaxed: accepts weaker calibration (single-room, office)"
+                            "Detection Mode",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
                         )
-                    },
-                    trailingContent = {
-                        androidx.compose.material3.FilterChip(
-                            selected = existingRoom.detectionPolicy == net.asksakis.massdroidv2.data.proximity.DetectionPolicy.RELAXED,
-                            onClick = {
-                                val newPolicy = if (existingRoom.detectionPolicy == net.asksakis.massdroidv2.data.proximity.DetectionPolicy.STRICT)
-                                    net.asksakis.massdroidv2.data.proximity.DetectionPolicy.RELAXED
-                                else net.asksakis.massdroidv2.data.proximity.DetectionPolicy.STRICT
-                                viewModel.updateRoomPolicy(existingRoom.id, newPolicy)
-                            },
-                            label = {
-                                Text(if (existingRoom.detectionPolicy == net.asksakis.massdroidv2.data.proximity.DetectionPolicy.STRICT) "Strict" else "Relaxed")
-                            }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            androidx.compose.material3.FilterChip(
+                                selected = isStrict,
+                                onClick = {
+                                    viewModel.updateRoomPolicy(existingRoom.id, net.asksakis.massdroidv2.data.proximity.DetectionPolicy.STRICT)
+                                },
+                                label = { Text("Strict") },
+                                leadingIcon = if (isStrict) { { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) } } else null,
+                                modifier = Modifier.weight(1f)
+                            )
+                            androidx.compose.material3.FilterChip(
+                                selected = !isStrict,
+                                onClick = {
+                                    viewModel.updateRoomPolicy(existingRoom.id, net.asksakis.massdroidv2.data.proximity.DetectionPolicy.RELAXED)
+                                },
+                                label = { Text("Relaxed") },
+                                leadingIcon = if (!isStrict) { { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) } } else null,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            if (isStrict) "Best for multi-room homes with good calibration"
+                            else "For single-room or low-ambiguity spaces (office, studio)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                )
+                }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 PlaybackConfigSection(
                     roomId = existingRoom.id,

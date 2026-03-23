@@ -119,14 +119,8 @@ class ProximityViewModel @Inject constructor(
         viewModelScope.launch {
             val id = roomId ?: UUID.randomUUID().toString()
             val existing = configStore.config.value.rooms.find { it.id == id }
-            val room = RoomConfig(
-                id = id,
-                name = name, playerId = playerId, playerName = playerName,
-                fingerprints = existing?.fingerprints ?: emptyList(),
-                beaconProfiles = existing?.beaconProfiles ?: emptyList(),
-                calibrationQuality = existing?.calibrationQuality ?: CalibrationQuality.UNCALIBRATED,
-                playbackConfig = existing?.playbackConfig ?: RoomPlaybackConfig()
-            )
+            val room = existing?.copy(name = name, playerId = playerId, playerName = playerName)
+                ?: RoomConfig(id = id, name = name, playerId = playerId, playerName = playerName)
             configStore.update { config ->
                 val updated = config.rooms.toMutableList()
                 val index = updated.indexOfFirst { it.id == room.id }
